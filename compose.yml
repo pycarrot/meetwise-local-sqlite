@@ -1,0 +1,16 @@
+services:
+  meetwise:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:4317:4317'
+    environment:
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - meetwise-data:/app/data
+
+volumes:
+  meetwise-data:

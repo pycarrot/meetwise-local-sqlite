@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meetwise Local</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark">M</span>
+        <div>
+          <h1>Meetwise Local</h1>
+          <p>Google Meet Capturer</p>
+        </div>
+      </header>
+      <div id="server-status" class="status"><i></i><span>กำลังตรวจ Ollama…</span></div>
+      <div id="capture-status" class="capture-status">พร้อมเริ่มจับคำบรรยาย</div>
+      <div class="actions">
+        <button id="start" class="primary" type="button">เริ่มจับ</button>
+        <button id="stop" type="button">หยุดและส่ง</button>
+      </div>
+      <button id="dashboard" class="dashboard" type="button">เปิดหน้าแดชบอร์ด</button>
+      <p class="hint">เปิด CC ภาษาไทยใน Google Meet ก่อนเริ่มจับ</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+.env
+data/meetings.json
+data/*.tmp
+docs/.qa/
+docs/qa-*.png
+*.log
+*.tsbuildinfo
+.DS_Store
