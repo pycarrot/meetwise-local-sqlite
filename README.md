@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml)
-[![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![Node 22+](https://img.shields.io/badge/node-22%2B-339933?logo=node.js&logoColor=white)](package.json)
 [![Source available](https://img.shields.io/badge/license-source--available-orange)](LICENSE.md)
 
 จับคำบรรยาย Google Meet เก็บข้อมูลไว้ในเครื่อง วิเคราะห์สัดส่วนผู้พูด และสรุปการประชุมด้วย Ollama โดยไม่ต้องส่ง transcript ไปยัง cloud service
@@ -20,7 +20,7 @@
 
 ## Requirements
 
-- Node.js 20 or 22
+- Node.js 22 or 24
 - Chrome or Chromium-based browser
 - [Ollama](https://ollama.com/download)
 - 2–5 GB free disk space for a local model
