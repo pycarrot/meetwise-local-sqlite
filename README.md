@@ -2,143 +2,110 @@
 
 [![CI](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml)
-[![Node 22+](https://img.shields.io/badge/node-22%2B-339933?logo=node.js&logoColor=white)](package.json)
 [![Source available](https://img.shields.io/badge/license-source--available-orange)](LICENSE.md)
 
-จับคำบรรยาย Google Meet เก็บข้อมูลไว้ในเครื่อง วิเคราะห์สัดส่วนผู้พูด และสรุปการประชุมด้วย Ollama โดยไม่ต้องส่ง transcript ไปยัง cloud service
+Meetwise is a self-hosted, multi-user meeting transcript and analysis service. Users install only the Chrome extension, sign in to an operator-managed HTTPS server, and view authorized workspace data in the web dashboard. PostgreSQL is the system of record and Ollama runs only on the server.
 
-> **License note:** Meetwise Local is public source/source-available, not OSI-approved open source. It is derived from [Google Meet CC Capturer](https://github.com/yunho0130/google-meet-cc-to-srt) and must retain its Apache 2.0 + Commons Clause and additional restrictions. Commercial sale, resale, competing commercial distribution, and commercial SaaS use are restricted. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md).
-
-## What it does
-
-- Companion Chrome extension captures Google Meet captions and displayed speaker names.
-- Local API stores timestamped meetings in an atomic JSON store.
-- Deterministic analytics ranks speakers by caption duration, with a Unicode spoken-unit fallback.
-- Ollama produces structured summaries, decisions, action items, topics, and speaker contributions.
-- Thai-first responsive dashboard supports transcript search and speaker filtering.
-- No analytics, telemetry, cloud model, or external database is configured.
-
-## Requirements
-
-- Node.js 22 or 24
-- Chrome or Chromium-based browser
-- [Ollama](https://ollama.com/download)
-- 2–5 GB free disk space for a local model
-
-## Quick start
-
-```bash
-git clone https://github.com/pycarrot/meetwise-local.git
-cd meetwise-local
-npm install
-npm run setup
-npm start
-```
-
-`npm run setup` creates `.env`, pulls `llama3.2`, runs all quality checks, builds the dashboard, and packages the extension. Open [http://127.0.0.1:4317](http://127.0.0.1:4317).
-
-To skip the model download for UI-only development:
-
-```bash
-npm run setup -- --skip-model
-```
-
-## Install the Chrome extension
-
-### From a release ZIP
-
-1. Download `meetwise-local-extension-vX.Y.Z.zip` from [Releases](https://github.com/pycarrot/meetwise-local/releases).
-2. Extract the ZIP.
-3. Open `chrome://extensions/` and enable **Developer mode**.
-4. Click **Load unpacked** and select the extracted folder.
-
-### From source
-
-Load the repository's `extension/` folder with the same Chrome steps.
-
-## Capture and analyze a meeting
-
-1. Join Google Meet and enable **CC**. Select Thai as the spoken language when needed.
-2. Open **Meetwise Local Capturer** and click **เริ่มจับ**.
-3. At the end, click **หยุดและส่ง**.
-4. Open the local dashboard and select the new meeting.
-5. Click **วิเคราะห์ใหม่** to analyze it with Ollama.
-
-The dashboard shows the summary, speaking share, topic ownership, decisions, action items, and timestamped transcript. Speaking share measures caption segments, not raw microphone audio, and should be treated as an estimate.
-
-## Configuration
-
-Copy `.env.example` to `.env`; `npm run setup` does this automatically.
-
-| Variable                | Default                  | Purpose                               |
-| ----------------------- | ------------------------ | ------------------------------------- |
-| `HOST`                  | `127.0.0.1`              | API bind address                      |
-| `PORT`                  | `4317`                   | Dashboard/API port                    |
-| `OLLAMA_URL`            | `http://127.0.0.1:11434` | Ollama API endpoint                   |
-| `OLLAMA_MODEL`          | `llama3.2`               | Analysis model                        |
-| `MEETWISE_ALLOW_REMOTE` | `false`                  | Explicitly allow non-loopback binding |
-
-The server refuses non-loopback binding unless `MEETWISE_ALLOW_REMOTE=true`. This flag does **not** add authentication or TLS. Read [SECURITY.md](SECURITY.md) before any remote deployment.
-
-## Docker
-
-Keep Ollama running on the host, then run:
-
-```bash
-docker compose up --build -d
-```
-
-The Compose port remains bound to `127.0.0.1`. The extension continues to use `http://127.0.0.1:4317`.
-
-## Development
-
-```bash
-npm run dev               # Vite + local API
-npm run lint              # ESLint
-npm test                  # deterministic unit tests
-npm run build             # TypeScript + production dashboard
-npm run package:extension # release ZIP
-npm run check             # full required validation
-npm run qa:visual         # desktop/mobile interaction and screenshot QA
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/RELEASING.md](docs/RELEASING.md).
+> **License:** the repository is public source/source-available, not OSI-approved open source. It retains the Apache 2.0 + Commons Clause and additional restrictions inherited from Google Meet CC Capturer. Commercial sale, resale, competing distribution, and commercial SaaS use are restricted. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md). No license or attribution was changed by the server architecture work.
 
 ## Architecture
 
 ```text
-Google Meet captions
-  -> Chrome content script
-  -> extension service worker
-  -> loopback Express API
-  -> local JSON store
-  -> React dashboard
-  -> local Ollama API
+Chrome extension -> HTTPS/Caddy -> Express API -> PostgreSQL
+                                      |              |
+                                      v              v
+                                  React dashboard  job worker -> Ollama
 ```
 
-Deterministic speaker statistics stay in application code. The language model receives the transcript only for semantic analysis. Input size, segment count, field length, CORS origins, and request rates are bounded.
+- Web authentication uses revocable opaque sessions in HttpOnly, SameSite cookies and per-session CSRF tokens.
+- Extension authentication uses a short-lived signed access token and a rotating, revocable extension-only refresh credential.
+- Every meeting and query is scoped by a backend-validated workspace membership.
+- Roles are `owner`, `admin`, `member`, and `viewer`; centralized policy definitions live in `packages/shared/permissions.ts`.
+- Analysis runs asynchronously through a PostgreSQL job table. Transcript content is treated as untrusted input and never written to normal logs.
+- No telemetry, external analytics, cloud LLM, or hidden hosted dependency is enabled.
 
-## Privacy and consent
+See [Architecture](docs/ARCHITECTURE.md) and [Threat model](docs/THREAT_MODEL.md).
 
-Meetwise processes meeting captions and displayed participant names. Notify participants and obtain any consent required by law or organizational policy. Do not commit `data/meetings.json`, real transcripts, or screenshots containing private information.
+## Production quick start
 
-Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before use.
+Requirements: Docker Engine with Compose v2, a DNS name pointing to the host, inbound TCP 80/443 and UDP 443, and adequate disk/RAM for PostgreSQL and Ollama.
+
+```bash
+cp .env.example .env
+# Fill PUBLIC_HOST, POSTGRES_PASSWORD, SESSION_SECRET, TOKEN_SIGNING_SECRET,
+# CORS_ALLOWED_ORIGINS and the matching EXTENSION_SERVER_URL.
+docker compose up -d postgres ollama
+docker compose exec ollama ollama pull llama3.2
+docker compose up -d --build
+
+export MEETWISE_ADMIN_EMAIL=admin@example.com
+read -s MEETWISE_ADMIN_PASSWORD && export MEETWISE_ADMIN_PASSWORD
+docker compose exec -e MEETWISE_ADMIN_EMAIL -e MEETWISE_ADMIN_PASSWORD app \
+  node dist-server/server/cli.js admin:create --name 'Administrator' --workspace 'My workspace'
+unset MEETWISE_ADMIN_PASSWORD
+```
+
+Generate application secrets with a cryptographically secure tool such as `openssl rand -base64 48`; never reuse values. Use a URL-safe database password such as `openssl rand -hex 32` because Compose places it in `DATABASE_URL`. Caddy obtains and renews TLS automatically after DNS is correct. The server intentionally fails fast for weak/default secrets, non-HTTPS server mode, wildcard CORS, or unsafe proxy settings.
+
+Build the deployment-specific extension:
+
+```bash
+EXTENSION_SERVER_URL=https://meetwise.example.com npm run package:extension
+```
+
+Load the ZIP through an approved Chrome distribution method. After installation, obtain the exact extension ID, set `CORS_ALLOWED_ORIGINS=chrome-extension://<id>`, and restart `app`. See [Production deployment](docs/PRODUCTION_DEPLOYMENT.md) and [Extension distribution](docs/EXTENSION_DISTRIBUTION.md).
+
+## Development
+
+Node.js 22 or 24, PostgreSQL 15+, and Ollama are required. HTTP is accepted only on localhost in local mode.
+
+```bash
+cp .env.example .env
+# Replace it with the development overrides shown at the bottom of the file.
+npm ci
+npm run db:migrate
+MEETWISE_ADMIN_EMAIL=dev@example.test \
+MEETWISE_ADMIN_PASSWORD='DevelopmentOnly7Password' npm run admin:create
+npm run dev
+npm run build:extension
+```
+
+Quality commands:
+
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+DATABASE_URL=postgresql://... npm run test:integration
+npm run build
+EXTENSION_SERVER_URL=https://meetwise.example.com npm run package:extension
+```
+
+## Data migration
+
+Apply versioned migrations before each upgrade:
+
+```bash
+npm run db:status
+npm run db:migrate
+npm run import:legacy -- --file ./data/meetings.json --workspace <workspace-uuid>
+```
+
+The legacy importer validates the old JSON, assigns every meeting to the explicit workspace, uses a workspace owner as the importing actor, and runs each meeting insert transactionally. Keep the source file until counts and transcript samples have been verified.
+
+## Operations and privacy
+
+- Liveness: `GET /api/v1/health`; dependency readiness: `GET /api/v1/ready`.
+- Production logs are structured JSON with request IDs and redact cookies and authorization headers.
+- Backups include transcripts, participant names, accounts, audit events, and analyses; handle them as personal/confidential data.
+- The application does not claim encryption at rest. Use encrypted host volumes or an encrypted PostgreSQL service.
+
+Read [Operations](docs/OPERATIONS.md), [Backup and restore](docs/BACKUP_AND_RESTORE.md), [SECURITY.md](SECURITY.md), and [PRIVACY.md](PRIVACY.md) before deployment.
 
 ## Known limitations
 
-- Google Meet can change its DOM and break caption selectors.
-- Captions can be inaccurate or omit speaker changes.
-- LLM output requires human review before it is used as an official record.
-- The current store is intended for one local user, not multi-tenant deployment.
-- Data is not encrypted at rest by this application.
-
-## Community
-
-- Bug reports: [Issues](https://github.com/pycarrot/meetwise-local/issues)
-- Questions: [Discussions](https://github.com/pycarrot/meetwise-local/discussions)
-- Security: [Private vulnerability reporting](https://github.com/pycarrot/meetwise-local/security/advisories/new)
-- Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-
-## Attribution
-
-Based on Google Meet CC Capturer by Yunho Maeng. Copyright (c) 2024 Yunho Maeng. Original repository: https://github.com/yunho0130/google-meet-cc-to-srt.
+- Google Meet DOM changes can break caption selectors; the extension falls back to broader semantic containers but releases still require live compatibility testing.
+- The application does not provide email delivery, invitation links, password reset email, OIDC, or application-layer encryption at rest. Accounts are created by the CLI and then added to workspaces by an owner/admin.
+- PostgreSQL full-text search uses the `simple` dictionary for multilingual predictability; it is substring-insensitive only according to PostgreSQL tokenization, not language-specific stemming.
+- Ollama output requires human review. Prompt isolation and schema validation reduce risk but do not make LLM output authoritative.

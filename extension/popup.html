@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meetwise Local</title>
+    <title>Meetwise</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -11,19 +11,48 @@
       <header>
         <span class="mark">M</span>
         <div>
-          <h1>Meetwise Local</h1>
+          <h1>Meetwise</h1>
           <p>Google Meet Capturer</p>
         </div>
       </header>
-      <div id="server-status" class="status"><i></i><span>กำลังตรวจ Ollama…</span></div>
-      <div id="capture-status" class="capture-status">พร้อมเริ่มจับคำบรรยาย</div>
-      <div class="actions">
-        <button id="start" class="primary" type="button">เริ่มจับ</button>
-        <button id="stop" type="button">หยุดและส่ง</button>
+      <div id="announcement" class="status" role="status" aria-live="polite">
+        <i></i><span>กำลังตรวจ server…</span>
       </div>
-      <button id="dashboard" class="dashboard" type="button">เปิดหน้าแดชบอร์ด</button>
-      <p class="hint">เปิด CC ภาษาไทยใน Google Meet ก่อนเริ่มจับ</p>
+      <form id="settings-form">
+        <label for="server-url">Server URL</label>
+        <input id="server-url" name="serverUrl" type="url" required autocomplete="url" />
+        <button id="save-server" type="submit">บันทึก Server URL</button>
+      </form>
+      <form id="login-form">
+        <label for="email">อีเมล</label
+        ><input id="email" name="email" type="email" required autocomplete="username" />
+        <label for="password">รหัสผ่าน</label
+        ><input
+          id="password"
+          name="password"
+          type="password"
+          required
+          autocomplete="current-password"
+        />
+        <button class="primary" type="submit">เข้าสู่ระบบ</button>
+      </form>
+      <section id="session-panel" hidden>
+        <p id="current-user"></p>
+        <p id="current-workspace"></p>
+        <button id="logout" type="button">ออกจากระบบ</button>
+        <div id="capture-status" class="capture-status">พร้อมเริ่มจับคำบรรยาย</div>
+        <div class="actions">
+          <button id="start" class="primary" type="button">เริ่มจับ</button
+          ><button id="stop" type="button">หยุดและเข้าคิว</button>
+        </div>
+        <button id="dashboard" class="dashboard" type="button">เปิดแดชบอร์ด</button>
+      </section>
+      <section>
+        <h2>คิวอัปโหลด</h2>
+        <ul id="queue"></ul>
+        <button id="clear-data" type="button">ลบ transcript ที่เก็บใน extension</button>
+      </section>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

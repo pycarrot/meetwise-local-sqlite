@@ -1,6 +1,9 @@
 node_modules/
 dist/
+dist-server/
+dist-extension/
 release/
+backups/
 .env
 data/meetings.json
 data/*.tmp
@@ -8,4 +11,5 @@ docs/.qa/
 docs/qa-*.png
 *.log
 *.tsbuildinfo
+.codex/
 .DS_Store

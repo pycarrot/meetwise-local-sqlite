@@ -44,13 +44,17 @@ export function Sidebar({ meetings, selectedId, health, onSelect }: SidebarProps
         </button>
       </nav>
       <div className="sidebar-footer">
-        <div className={`connection-card ${health?.ollama.connected ? 'online' : 'offline'}`}>
+        <div
+          className={`connection-card ${health?.dependencies.ollama.connected ? 'online' : 'offline'}`}
+        >
           <div>
             <span className="status-dot" />
-            {health?.ollama.connected ? 'Ollama พร้อมใช้งาน' : 'Ollama ยังไม่เชื่อมต่อ'}
+            {health?.dependencies.ollama.connected
+              ? 'Ollama พร้อมใช้งาน'
+              : 'Ollama ยังไม่เชื่อมต่อ'}
           </div>
-          <small>โมเดล: {health?.ollama.model || 'llama3.2'}</small>
-          <small>http://127.0.0.1:11434</small>
+          <small>โมเดล: {health?.dependencies.ollama.model || 'ไม่ระบุ'}</small>
+          <small>ประมวลผลบน Meetwise server</small>
         </div>
         <div className="extension-card">
           <ExternalLink size={20} />

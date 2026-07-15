@@ -22,16 +22,21 @@ export type Topic = {
 };
 
 export type Analysis = {
-  model: string;
-  analyzedAt: string;
-  summary: string[];
-  decisions: string[];
-  actionItems: { owner: string; task: string; due: string }[];
-  topics: Topic[];
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  model: string | null;
+  analyzedAt: string | null;
+  failureReason: string | null;
+  attemptCount: number;
+  summary?: string[];
+  decisions?: string[];
+  actionItems?: { owner: string; task: string; due: string }[];
+  topics?: Topic[];
 };
 
 export type Meeting = {
   id: string;
+  workspaceId: string;
   title: string;
   source: string;
   startedAt: string;
@@ -43,15 +48,30 @@ export type Meeting = {
   analysis: Analysis | null;
 };
 
-export type MeetingSummary = Omit<Meeting, 'segments'> & { segmentCount: number };
+export type MeetingSummary = Pick<
+  Meeting,
+  'id' | 'workspaceId' | 'title' | 'source' | 'startedAt' | 'endedAt' | 'createdAt' | 'updatedAt'
+> & {
+  segmentCount: number;
+  analysisStatus: Analysis['status'] | null;
+};
 
 export type Health = {
-  ok: boolean;
-  ollama: {
-    connected: boolean;
-    model: string;
-    models: string[];
-    modelAvailable: boolean;
-    error?: string;
+  ready: boolean;
+  dependencies: {
+    database: { ready: boolean };
+    ollama: { connected: boolean; model: string; modelAvailable: boolean; error?: string };
   };
+};
+
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type Workspace = { id: string; name: string; role: WorkspaceRole };
+export type CurrentUser = { id: string; email: string; displayName: string; status: string };
+export type Member = {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  status: string;
+  role: WorkspaceRole;
 };

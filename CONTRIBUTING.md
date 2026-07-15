@@ -1,6 +1,6 @@
 # Contributing to Meetwise Local
 
-Thank you for helping improve private, local-first meeting tooling.
+Thank you for helping improve secure, self-hosted meeting tooling.
 
 ## Before you start
 
@@ -18,7 +18,7 @@ npm run setup
 npm run dev
 ```
 
-Use `npm run setup -- --skip-model` when you only need frontend or deterministic-statistics work.
+PostgreSQL must be running before setup applies migrations. Use `npm run setup -- --skip-model` when you do not need local Ollama.
 
 ## Quality checks
 
@@ -26,12 +26,13 @@ Run before opening a pull request:
 
 ```bash
 npm run check
+DATABASE_URL=postgresql://... npm run test:integration
 ```
 
 For visible dashboard changes, also run the local server followed by:
 
 ```bash
-npm run qa:visual
+MEETWISE_QA_EMAIL=... MEETWISE_QA_PASSWORD=... npm run qa:visual
 ```
 
 ## Pull requests

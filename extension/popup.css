@@ -10,6 +10,53 @@ body {
   margin: 0;
   background: #fff;
 }
+
+form,
+section {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+label {
+  color: #33443d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+input {
+  border: 1px solid #c8d3cd;
+  border-radius: 8px;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid #65a887;
+  outline-offset: 2px;
+}
+
+h2 {
+  font-size: 13px;
+  margin: 0;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  max-height: 100px;
+  overflow: auto;
+  padding: 0;
+}
+
+li {
+  border-bottom: 1px solid #e6ece8;
+  font-size: 11px;
+  padding: 6px 0;
+}
 main {
   padding: 18px;
 }

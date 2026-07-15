@@ -9,6 +9,30 @@ let activeBySpeaker = new Map();
 let lastSavedTextBySpeaker = new Map();
 let observer;
 let scanQueued = false;
+let checkpointTimer;
+
+function pageKey() {
+  return `${location.origin}${location.pathname}`;
+}
+
+function scheduleCheckpoint() {
+  clearTimeout(checkpointTimer);
+  checkpointTimer = setTimeout(() => {
+    chrome.runtime.sendMessage({
+      type: 'MEETWISE_CAPTURE_CHECKPOINT',
+      state: capturing
+        ? {
+            pageKey: pageKey(),
+            capturing,
+            startedAt,
+            segments,
+            activeBySpeaker: [...activeBySpeaker.entries()],
+            lastSavedTextBySpeaker: [...lastSavedTextBySpeaker.entries()]
+          }
+        : null
+    });
+  }, 250);
+}
 
 function elapsed() {
   return Math.max(0, Date.now() - startedAt);
@@ -22,6 +46,7 @@ function meetingTitle() {
 }
 
 function startCapture() {
+  if (capturing) return false;
   capturing = true;
   startedAt = Date.now();
   segments = [];
@@ -29,6 +54,8 @@ function startCapture() {
   lastSavedTextBySpeaker = new Map();
   updateIndicator();
   scanCaptions();
+  scheduleCheckpoint();
+  return true;
 }
 
 function commitSpeaker(speaker) {
@@ -40,6 +67,7 @@ function commitSpeaker(speaker) {
     lastSavedTextBySpeaker.set(speaker, active.text);
   }
   activeBySpeaker.delete(speaker);
+  scheduleCheckpoint();
 }
 
 function observeCaption(speaker, text) {
@@ -94,6 +122,7 @@ function scanCaptions() {
     });
   }
   updateIndicator();
+  scheduleCheckpoint();
 }
 
 function queueScan() {
@@ -115,8 +144,14 @@ async function stopAndSend() {
     endedAt: endedAt.toISOString(),
     segments
   };
+  if (!segments.length) {
+    updateIndicator('ไม่พบคำบรรยาย');
+    scheduleCheckpoint();
+    return { ok: false, error: 'ไม่พบคำบรรยายสำหรับอัปโหลด' };
+  }
   const response = await chrome.runtime.sendMessage({ type: 'MEETWISE_IMPORT', payload });
-  updateIndicator(response.ok ? `บันทึกแล้ว ${segments.length} ช่วง` : 'ส่งไม่สำเร็จ');
+  scheduleCheckpoint();
+  updateIndicator(response.ok ? `เข้าคิวแล้ว ${segments.length} ช่วง` : 'เพิ่มเข้าคิวไม่สำเร็จ');
   return response;
 }
 
@@ -154,7 +189,8 @@ function installIndicator() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'MEETWISE_START') {
-    startCapture();
+    if (!startCapture())
+      return sendResponse({ ok: false, error: 'มี capture session ที่กำลังทำงานอยู่แล้ว' });
     sendResponse({
       ok: true,
       status: { capturing, count: segments.length + activeBySpeaker.size }
@@ -173,3 +209,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 observer = new MutationObserver(queueScan);
 observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 installIndicator();
+
+chrome.runtime.sendMessage({ type: 'MEETWISE_CAPTURE_RESTORE' }).then((response) => {
+  const state = response?.state;
+  if (!state?.capturing || state.pageKey !== pageKey()) return;
+  capturing = true;
+  startedAt = state.startedAt;
+  segments = Array.isArray(state.segments) ? state.segments : [];
+  activeBySpeaker = new Map(Array.isArray(state.activeBySpeaker) ? state.activeBySpeaker : []);
+  lastSavedTextBySpeaker = new Map(
+    Array.isArray(state.lastSavedTextBySpeaker) ? state.lastSavedTextBySpeaker : []
+  );
+  updateIndicator('กู้ capture session แล้ว');
+  scanCaptions();
+});

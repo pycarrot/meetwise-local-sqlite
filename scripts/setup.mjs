@@ -1,4 +1,5 @@
-import { access, copyFile } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -19,8 +20,12 @@ async function ensureEnvironmentFile() {
   try {
     await access(destination);
   } catch {
-    await copyFile(path.join(rootDir, '.env.example'), destination);
-    console.log('Created .env from .env.example');
+    const secret = () => randomBytes(36).toString('base64url');
+    await writeFile(
+      destination,
+      `NODE_ENV=development\nDEPLOYMENT_MODE=local\nHOST=127.0.0.1\nPORT=4317\nPUBLIC_BASE_URL=http://127.0.0.1:4317\nDATABASE_URL=postgresql://meetwise:meetwise@127.0.0.1:5432/meetwise\nSESSION_SECRET=${secret()}\nTOKEN_SIGNING_SECRET=${secret()}\nOLLAMA_URL=http://127.0.0.1:11434\nOLLAMA_MODEL=${model}\nTRUST_PROXY=false\n`
+    );
+    console.log('Created a local-development .env with random development secrets');
   }
 }
 
@@ -53,13 +58,19 @@ if (!skipModel) {
   run(ollama, ['pull', model]);
 }
 
-if (process.env.npm_execpath) {
-  run(process.execPath, [process.env.npm_execpath, 'run', 'check']);
-} else {
-  run('npm', ['run', 'check'], { shell: os.platform() === 'win32' });
-}
+const npmCommand = process.env.npm_execpath
+  ? [process.execPath, [process.env.npm_execpath]]
+  : ['npm', []];
+const runNpm = (args) =>
+  run(npmCommand[0], [...npmCommand[1], ...args], { shell: os.platform() === 'win32' });
+runNpm(['run', 'db:migrate']);
+for (const script of ['format:check', 'lint', 'typecheck', 'test', 'build', 'build:extension'])
+  runNpm(['run', script]);
 
 console.log('\nMeetwise Local is ready.');
-console.log('1. Run: npm start');
-console.log('2. Open: http://127.0.0.1:4317');
-console.log('3. Load the extension/ folder from chrome://extensions');
+console.log(
+  '1. Create the initial admin with MEETWISE_ADMIN_EMAIL and MEETWISE_ADMIN_PASSWORD npm run admin:create'
+);
+console.log('2. Run: npm run dev');
+console.log('3. Open: http://127.0.0.1:4317');
+console.log('4. Load dist-extension/ from chrome://extensions');

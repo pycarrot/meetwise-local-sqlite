@@ -1,37 +1,71 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  push: { branches: [main] }
   pull_request:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+permissions: { contents: read }
+concurrency: { group: 'ci-${{ github.ref }}', cancel-in-progress: true }
 
 jobs:
   quality:
-    name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [22, 24]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
+        with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npm run check
-      - name: Upload extension package
-        if: matrix.node == 22
-        uses: actions/upload-artifact@v7
-        with:
-          name: meetwise-local-extension
-          path: release/*.zip
-          if-no-files-found: error
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - run: npm run package:extension
+        env: { EXTENSION_SERVER_URL: 'https://meetwise.example.com' }
+      - uses: actions/upload-artifact@v7
+        with: { name: meetwise-extension, path: 'release/*.zip', if-no-files-found: error }
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env: { POSTGRES_USER: meetwise, POSTGRES_PASSWORD: test-only, POSTGRES_DB: meetwise_test }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U meetwise -d meetwise_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://meetwise:test-only@127.0.0.1:5432/meetwise_test
+      NODE_ENV: test
+      DEPLOYMENT_MODE: local
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run db:status
+      - run: npm run test:integration
+
+  container:
+    runs-on: ubuntu-latest
+    env:
+      PUBLIC_HOST: meetwise.example.com
+      POSTGRES_PASSWORD: ci-not-a-production-secret
+      SESSION_SECRET: ci-session-secret-not-for-production-use-000000000000000000
+      TOKEN_SIGNING_SECRET: ci-token-secret-not-for-production-use-0000000000000000000
+      CORS_ALLOWED_ORIGINS: chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      - run: docker build --tag meetwise:ci .
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
