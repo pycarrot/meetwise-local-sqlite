@@ -2,7 +2,7 @@
 
 ## Assets and trust boundaries
 
-High-value assets are credentials, workspace membership, transcripts/participant identities, analysis output, audit history, database backups, and deployment secrets. Trust boundaries are Google Meet DOM to content script, extension to HTTPS API, browser cookie to API, API to PostgreSQL, worker to Ollama, reverse proxy to API, and operator access to containers/backups.
+High-value assets are credentials, workspace membership, transcripts/participant identities, analysis output, audit history, database backups, and deployment secrets. Trust boundaries are Google Meet DOM to content script, extension to HTTPS API, browser cookie to API, API to the local SQLite volume, worker to Ollama, reverse proxy to API, and operator access to containers/backups.
 
 | Threat                             | Primary controls                                                                                                                                                      | Residual risk / operation                                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |

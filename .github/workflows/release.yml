@@ -10,19 +10,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17.5-alpine
-        env:
-          POSTGRES_USER: meetwise
-          POSTGRES_PASSWORD: test-only
-          POSTGRES_DB: meetwise_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U meetwise -d meetwise_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql://meetwise:test-only@127.0.0.1:5432/meetwise_test
       NODE_ENV: test
       DEPLOYMENT_MODE: local
     steps:

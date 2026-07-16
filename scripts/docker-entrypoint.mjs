@@ -1,30 +1,13 @@
-import net from 'node:net';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-const databaseUrl = new URL(process.env.DATABASE_URL || '');
-const host = databaseUrl.hostname;
-const port = Number(databaseUrl.port || 5432);
-const deadline = Date.now() + Number(process.env.DATABASE_WAIT_TIMEOUT_MS || 60_000);
-
-while (true) {
-  const ready = await new Promise((resolve) => {
-    const socket = net.createConnection({ host, port });
-    socket.setTimeout(1_000);
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.once('error', () => resolve(false));
-  });
-  if (ready) break;
-  if (Date.now() >= deadline)
-    throw new Error(`Database was not reachable within the configured timeout`);
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
-}
+const databaseUrl = process.env.DATABASE_URL || '';
+if (!databaseUrl.startsWith('file:')) throw new Error('DATABASE_URL must use a file: URL');
+const databasePath = databaseUrl.slice(5);
+if (!databasePath || databasePath === ':memory:')
+  throw new Error('Production requires a persistent SQLite file');
+await mkdir(path.dirname(path.resolve(databasePath)), { recursive: true });
 
 if (process.env.RUN_MIGRATIONS === 'true') {
   const migration = spawn(process.execPath, ['dist-server/server/cli.js', 'db:migrate'], {

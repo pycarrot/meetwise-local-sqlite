@@ -1,4 +1,4 @@
-name: meetwise
+name: meetwise-sqlite
 
 x-app-environment: &app-environment
   NODE_ENV: production
@@ -6,11 +6,13 @@ x-app-environment: &app-environment
   HOST: 0.0.0.0
   PORT: 4317
   PUBLIC_BASE_URL: https://${PUBLIC_HOST:?Set PUBLIC_HOST}
-  DATABASE_URL: postgresql://meetwise:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/meetwise
+  DATABASE_URL: file:/app/data/meetwise.db
+  DATABASE_BUSY_TIMEOUT_MS: 15000
   SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
   TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET:?Set TOKEN_SIGNING_SECRET}
   OLLAMA_URL: http://ollama:11434
   OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+  OLLAMA_MAX_CONCURRENCY: ${OLLAMA_MAX_CONCURRENCY:-1}
   TRUST_PROXY: '1'
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set exact extension origin}
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -23,8 +25,8 @@ services:
       <<: *app-environment
       RUN_MIGRATIONS: 'true'
     depends_on:
-      postgres: { condition: service_healthy }
       ollama: { condition: service_started }
+    volumes: ['sqlite-data:/app/data']
     read_only: true
     tmpfs: ['/tmp:size=64m,mode=1777']
     security_opt: ['no-new-privileges:true']
@@ -40,25 +42,11 @@ services:
       RUN_MIGRATIONS: 'false'
     depends_on:
       app: { condition: service_healthy }
+    volumes: ['sqlite-data:/app/data']
     read_only: true
     tmpfs: ['/tmp:size=64m,mode=1777']
     security_opt: ['no-new-privileges:true']
     cap_drop: ['ALL']
-    networks: [backend]
-
-  postgres:
-    image: postgres:17.5-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: meetwise
-      POSTGRES_USER: meetwise
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-    volumes: ['postgres-data:/var/lib/postgresql/data']
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U meetwise -d meetwise']
-      interval: 10s
-      timeout: 5s
-      retries: 10
     networks: [backend]
 
   ollama:
@@ -84,7 +72,7 @@ networks:
   frontend: {}
   backend: { internal: true }
 volumes:
-  postgres-data: {}
+  sqlite-data: {}
   ollama-data: {}
   caddy-data: {}
   caddy-config: {}

@@ -1,40 +1,42 @@
-# Meetwise Local
+# Meetwise Local SQLite
 
-[![CI](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml/badge.svg)](https://github.com/pycarrot/meetwise-local/actions/workflows/codeql.yml)
+[![CI](https://github.com/pycarrot/meetwise-local-sqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/pycarrot/meetwise-local-sqlite/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/pycarrot/meetwise-local-sqlite/actions/workflows/codeql.yml/badge.svg)](https://github.com/pycarrot/meetwise-local-sqlite/actions/workflows/codeql.yml)
 [![Source available](https://img.shields.io/badge/license-source--available-orange)](LICENSE.md)
 
-Meetwise is a self-hosted, multi-user meeting transcript and analysis service. Users install only the Chrome extension, sign in to an operator-managed HTTPS server, and view authorized workspace data in the web dashboard. PostgreSQL is the system of record and Ollama runs only on the server.
+Meetwise Local SQLite is the small-organization edition of Meetwise: a self-hosted, multi-user meeting transcript and analysis service with no separate database server. Users install only the Chrome extension, sign in to an operator-managed HTTPS server, and use the web dashboard. SQLite is the system of record and Ollama runs only on the server.
 
-> **License:** the repository is public source/source-available, not OSI-approved open source. It retains the Apache 2.0 + Commons Clause and additional restrictions inherited from Google Meet CC Capturer. Commercial sale, resale, competing distribution, and commercial SaaS use are restricted. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md). No license or attribution was changed by the server architecture work.
+This edition targets one application host and modest concurrent use. Choose the [PostgreSQL edition](https://github.com/pycarrot/meetwise-local) for horizontal API/worker scaling or sustained write-heavy workloads.
+
+> **License:** this repository is public source/source-available, not OSI-approved open source. It retains the Apache 2.0 + Commons Clause and additional restrictions inherited from Google Meet CC Capturer. Commercial sale, resale, competing distribution, and commercial SaaS use are restricted. See [LICENSE.md](LICENSE.md) and [NOTICE.md](NOTICE.md).
 
 ## Architecture
 
 ```text
-Chrome extension -> HTTPS/Caddy -> Express API -> PostgreSQL
+Chrome extension -> HTTPS/Caddy -> Express API -> SQLite (WAL)
                                       |              |
                                       v              v
                                   React dashboard  job worker -> Ollama
 ```
 
 - Web authentication uses revocable opaque sessions in HttpOnly, SameSite cookies and per-session CSRF tokens.
-- Extension authentication uses a short-lived signed access token and a rotating, revocable extension-only refresh credential.
-- Every meeting and query is scoped by a backend-validated workspace membership.
-- Roles are `owner`, `admin`, `member`, and `viewer`; centralized policy definitions live in `packages/shared/permissions.ts`.
-- Analysis runs asynchronously through a PostgreSQL job table. Transcript content is treated as untrusted input and never written to normal logs.
+- Extension authentication uses short-lived access tokens and rotating, revocable refresh credentials.
+- Every data query is scoped by backend-validated workspace membership and centralized role policies.
+- SQLite runs with foreign keys, WAL, `synchronous=NORMAL`, a bounded busy timeout, indexed tenant queries, and FTS5 transcript search.
+- Analysis uses a durable SQLite job table. Write transactions serialize job claims, stale locks recover automatically, and Ollama work happens outside database transactions.
 - No telemetry, external analytics, cloud LLM, or hidden hosted dependency is enabled.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Threat model](docs/THREAT_MODEL.md).
 
 ## Production quick start
 
-Requirements: Docker Engine with Compose v2, a DNS name pointing to the host, inbound TCP 80/443 and UDP 443, and adequate disk/RAM for PostgreSQL and Ollama.
+Requirements: Docker Engine with Compose v2, a DNS name pointing to the host, inbound TCP 80/443 and UDP 443, and adequate disk/RAM for Ollama. Keep the SQLite volume on reliable local storage; do not place it on NFS or share it between hosts.
 
 ```bash
 cp .env.example .env
-# Fill PUBLIC_HOST, POSTGRES_PASSWORD, SESSION_SECRET, TOKEN_SIGNING_SECRET,
+# Fill PUBLIC_HOST, SESSION_SECRET, TOKEN_SIGNING_SECRET,
 # CORS_ALLOWED_ORIGINS and the matching EXTENSION_SERVER_URL.
-docker compose up -d postgres ollama
+docker compose up -d ollama
 docker compose exec ollama ollama pull llama3.2
 docker compose up -d --build
 
@@ -45,7 +47,7 @@ docker compose exec -e MEETWISE_ADMIN_EMAIL -e MEETWISE_ADMIN_PASSWORD app \
 unset MEETWISE_ADMIN_PASSWORD
 ```
 
-Generate application secrets with a cryptographically secure tool such as `openssl rand -base64 48`; never reuse values. Use a URL-safe database password such as `openssl rand -hex 32` because Compose places it in `DATABASE_URL`. Caddy obtains and renews TLS automatically after DNS is correct. The server intentionally fails fast for weak/default secrets, non-HTTPS server mode, wildcard CORS, or unsafe proxy settings.
+Generate each application secret independently with a cryptographically secure tool such as `openssl rand -base64 48`. Caddy obtains TLS after DNS is correct. Server mode fails fast for weak/default secrets, non-HTTPS origins, wildcard CORS, or unsafe proxy settings.
 
 Build the deployment-specific extension:
 
@@ -53,16 +55,15 @@ Build the deployment-specific extension:
 EXTENSION_SERVER_URL=https://meetwise.example.com npm run package:extension
 ```
 
-Load the ZIP through an approved Chrome distribution method. After installation, obtain the exact extension ID, set `CORS_ALLOWED_ORIGINS=chrome-extension://<id>`, and restart `app`. See [Production deployment](docs/PRODUCTION_DEPLOYMENT.md) and [Extension distribution](docs/EXTENSION_DISTRIBUTION.md).
+After installation, obtain the exact extension ID, set `CORS_ALLOWED_ORIGINS=chrome-extension://<id>`, and restart `app`. See [Production deployment](docs/PRODUCTION_DEPLOYMENT.md) and [Extension distribution](docs/EXTENSION_DISTRIBUTION.md).
 
 ## Development
 
-Node.js 22 or 24, PostgreSQL 15+, and Ollama are required. HTTP is accepted only on localhost in local mode.
+Node.js 22 or 24 and Ollama are required. SQLite is embedded; no database service is needed. HTTP is accepted only on localhost in local mode.
 
 ```bash
-cp .env.example .env
-# Replace it with the development overrides shown at the bottom of the file.
 npm ci
+npm run setup
 npm run db:migrate
 MEETWISE_ADMIN_EMAIL=dev@example.test \
 MEETWISE_ADMIN_PASSWORD='DevelopmentOnly7Password' npm run admin:create
@@ -77,35 +78,33 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
-DATABASE_URL=postgresql://... npm run test:integration
+npm run test:integration
 npm run build
 EXTENSION_SERVER_URL=https://meetwise.example.com npm run package:extension
 ```
 
-## Data migration
-
-Apply versioned migrations before each upgrade:
+## Data migration and operations
 
 ```bash
 npm run db:status
 npm run db:migrate
 npm run import:legacy -- --file ./data/meetings.json --workspace <workspace-uuid>
+npm run backup -- --file ./backups/meetwise.db
 ```
 
-The legacy importer validates the old JSON, assigns every meeting to the explicit workspace, uses a workspace owner as the importing actor, and runs each meeting insert transactionally. Keep the source file until counts and transcript samples have been verified.
-
-## Operations and privacy
+The importer validates legacy JSON and assigns every meeting to an explicit workspace. Backups use SQLite `VACUUM INTO`, producing a consistent standalone database while WAL mode is active.
 
 - Liveness: `GET /api/v1/health`; dependency readiness: `GET /api/v1/ready`.
-- Production logs are structured JSON with request IDs and redact cookies and authorization headers.
-- Backups include transcripts, participant names, accounts, audit events, and analyses; handle them as personal/confidential data.
-- The application does not claim encryption at rest. Use encrypted host volumes or an encrypted PostgreSQL service.
+- Logs are structured JSON and redact cookies and authorization headers.
+- The SQLite database and backups contain transcripts, participant names, accounts, audits, and analyses. Encrypt the host volume and backup media; Meetwise does not claim application-level encryption at rest.
 
 Read [Operations](docs/OPERATIONS.md), [Backup and restore](docs/BACKUP_AND_RESTORE.md), [SECURITY.md](SECURITY.md), and [PRIVACY.md](PRIVACY.md) before deployment.
 
 ## Known limitations
 
-- Google Meet DOM changes can break caption selectors; the extension falls back to broader semantic containers but releases still require live compatibility testing.
-- The application does not provide email delivery, invitation links, password reset email, OIDC, or application-layer encryption at rest. Accounts are created by the CLI and then added to workspaces by an owner/admin.
-- PostgreSQL full-text search uses the `simple` dictionary for multilingual predictability; it is substring-insensitive only according to PostgreSQL tokenization, not language-specific stemming.
-- Ollama output requires human review. Prompt isolation and schema validation reduce risk but do not make LLM output authoritative.
+- This edition is single-host. API and worker may be separate processes on the same host and shared local volume, but multiple hosts and network filesystems are unsupported.
+- SQLite serializes writers. WAL keeps readers responsive, but very high simultaneous ingestion or admin write traffic belongs on the PostgreSQL edition.
+- Google Meet DOM changes can break caption selectors; releases require live compatibility testing.
+- Email invitations, password reset email, OIDC, and application-layer encryption at rest are not included.
+- FTS5 uses Unicode tokenization without Thai dictionary segmentation; exact phrase/prefix behavior depends on token boundaries.
+- Ollama output requires human review even with prompt isolation and schema validation.

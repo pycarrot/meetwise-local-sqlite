@@ -23,7 +23,7 @@ async function ensureEnvironmentFile() {
     const secret = () => randomBytes(36).toString('base64url');
     await writeFile(
       destination,
-      `NODE_ENV=development\nDEPLOYMENT_MODE=local\nHOST=127.0.0.1\nPORT=4317\nPUBLIC_BASE_URL=http://127.0.0.1:4317\nDATABASE_URL=postgresql://meetwise:meetwise@127.0.0.1:5432/meetwise\nSESSION_SECRET=${secret()}\nTOKEN_SIGNING_SECRET=${secret()}\nOLLAMA_URL=http://127.0.0.1:11434\nOLLAMA_MODEL=${model}\nTRUST_PROXY=false\n`
+      `NODE_ENV=development\nDEPLOYMENT_MODE=local\nHOST=127.0.0.1\nPORT=4317\nPUBLIC_BASE_URL=http://127.0.0.1:4317\nDATABASE_URL=file:./data/meetwise.db\nDATABASE_BUSY_TIMEOUT_MS=15000\nSESSION_SECRET=${secret()}\nTOKEN_SIGNING_SECRET=${secret()}\nOLLAMA_URL=http://127.0.0.1:11434\nOLLAMA_MODEL=${model}\nTRUST_PROXY=false\n`
     );
     console.log('Created a local-development .env with random development secrets');
   }

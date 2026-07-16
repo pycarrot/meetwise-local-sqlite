@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, gt, ilike, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
 import type { MeetingIngestion } from '../../packages/shared/schemas.js';
-import { db, pool } from '../db/client.js';
+import { db } from '../db/client.js';
 import { analyses, ingestionKeys, meetings, transcriptSegments } from '../db/schema.js';
 import { ApiError } from '../http/errors.js';
 import { calculateSpeakerStats } from './stats.js';
@@ -93,7 +93,7 @@ export async function ingestMeeting(input: {
       return { meeting: fullMeeting, replayed: false };
     });
   } catch (error) {
-    if ((error as { code?: string }).code === '23505') {
+    if (String((error as { code?: string }).code).startsWith('SQLITE_CONSTRAINT')) {
       const [existing] = await db
         .select({ requestHash: ingestionKeys.requestHash, meetingId: ingestionKeys.meetingId })
         .from(ingestionKeys)
@@ -184,16 +184,20 @@ export async function listMeetings(input: {
         )!
       );
   }
-  if (input.search)
+  if (input.search) {
+    const escaped = input.search.replaceAll('"', '""');
+    const ftsQuery = `"${escaped}"*`;
     conditions.push(
       or(
-        ilike(meetings.title, `%${input.search}%`),
+        like(sql`lower(${meetings.title})`, `%${input.search.toLowerCase()}%`),
         sql`exists (
-    select 1 from transcript_segments ts where ts.meeting_id = ${meetings.id}
-    and to_tsvector('simple', ts.text) @@ websearch_to_tsquery('simple', ${input.search})
+    select 1 from transcript_segments ts
+    join transcript_segments_fts fts on fts.rowid = ts.rowid
+    where ts.meeting_id = ${meetings.id} and transcript_segments_fts match ${ftsQuery}
   )`
       )!
     );
+  }
   if (input.speaker)
     conditions.push(sql`exists (
     select 1 from transcript_segments ts where ts.meeting_id = ${meetings.id} and ts.speaker = ${input.speaker}
@@ -208,7 +212,7 @@ export async function listMeetings(input: {
       endedAt: meetings.endedAt,
       createdAt: meetings.createdAt,
       updatedAt: meetings.updatedAt,
-      segmentCount: sql<number>`(select count(*)::int from transcript_segments ts where ts.meeting_id = ${meetings.id})`,
+      segmentCount: sql<number>`(select count(*) from transcript_segments ts where ts.meeting_id = ${meetings.id})`,
       analysisStatus: analyses.status
     })
     .from(meetings)
@@ -240,9 +244,16 @@ export async function assertMeetingInWorkspace(
   workspaceId: string,
   meetingId: string
 ): Promise<void> {
-  const result = await pool.query(
-    'select 1 from meetings where id=$1 and workspace_id=$2 and deleted_at is null',
-    [meetingId, workspaceId]
-  );
-  if (!result.rowCount) throw new ApiError(404, 'NOT_FOUND', 'Meeting not found');
+  const [result] = await db
+    .select({ id: meetings.id })
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.id, meetingId),
+        eq(meetings.workspaceId, workspaceId),
+        isNull(meetings.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!result) throw new ApiError(404, 'NOT_FOUND', 'Meeting not found');
 }

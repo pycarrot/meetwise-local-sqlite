@@ -4,7 +4,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { loginSchema } from '../../packages/shared/schemas.js';
 import { config } from '../config.js';
 import { db } from '../db/client.js';
-import { users } from '../db/schema.js';
+import { extensionSessions, users, webSessions } from '../db/schema.js';
 import { stableSecretHash, verifyPassword } from '../auth/crypto.js';
 import { requireCsrf, requireWebAuth } from '../auth/middleware.js';
 import {
@@ -84,12 +84,21 @@ router.post('/logout', requireWebAuth, requireCsrf, async (request, response) =>
 });
 
 router.post('/sessions/revoke-all', requireWebAuth, requireCsrf, async (request, response) => {
-  await db.execute(
-    sql`update web_sessions set revoked_at=now() where user_id=${request.auth!.userId} and revoked_at is null`
-  );
-  await db.execute(
-    sql`update extension_sessions set revoked_at=now(), access_version=access_version+1 where user_id=${request.auth!.userId} and revoked_at is null`
-  );
+  await db
+    .update(webSessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(eq(webSessions.userId, request.auth!.userId), sql`${webSessions.revokedAt} is null`)
+    );
+  await db
+    .update(extensionSessions)
+    .set({ revokedAt: new Date(), accessVersion: sql`${extensionSessions.accessVersion} + 1` })
+    .where(
+      and(
+        eq(extensionSessions.userId, request.auth!.userId),
+        sql`${extensionSessions.revokedAt} is null`
+      )
+    );
   response.clearCookie(WEB_SESSION_COOKIE, cookieBase);
   response.clearCookie(CSRF_COOKIE, { ...cookieBase, httpOnly: false });
   await writeAudit({

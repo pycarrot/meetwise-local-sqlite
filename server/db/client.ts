@@ -1,37 +1,31 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import pg from 'pg';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import { config } from '../config.js';
 import * as schema from './schema.js';
 
-const { Pool } = pg;
+export const client = createClient({ url: config.databaseUrl });
 
-export const pool = new Pool({
-  connectionString: config.databaseUrl,
-  max: config.databasePoolMax,
-  ssl: config.databaseSsl
-    ? { rejectUnauthorized: config.databaseSslRejectUnauthorized }
-    : undefined,
-  statement_timeout: config.databaseStatementTimeoutMs,
-  application_name: 'meetwise'
-});
+await client.execute('PRAGMA foreign_keys = ON');
+await client.execute('PRAGMA journal_mode = WAL');
+await client.execute('PRAGMA synchronous = NORMAL');
+await client.execute(`PRAGMA busy_timeout = ${config.databaseBusyTimeoutMs}`);
+await client.execute('PRAGMA temp_store = MEMORY');
 
-pool.on('error', (error) => {
-  process.stderr.write(
-    `${JSON.stringify({ level: 'error', event: 'database_pool_error', message: error.message })}\n`
-  );
-});
-
-export const db = drizzle(pool, { schema });
+export const db = drizzle(client, { schema });
 
 export async function databaseReady(): Promise<boolean> {
   try {
-    await pool.query('select 1');
+    await client.execute('select 1');
     return true;
   } catch {
     return false;
   }
 }
 
+export async function checkpointDatabase(): Promise<void> {
+  await client.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+}
+
 export async function closeDatabase(): Promise<void> {
-  await pool.end();
+  client.close();
 }

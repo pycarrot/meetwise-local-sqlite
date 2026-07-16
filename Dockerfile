@@ -14,7 +14,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY migrations ./migrations
 COPY scripts/docker-entrypoint.mjs ./scripts/docker-entrypoint.mjs
+COPY scripts/sqlite-backup.mjs scripts/sqlite-restore.mjs ./scripts/
 COPY LICENSE.md NOTICE.md ./
+RUN mkdir -p /app/data
 RUN chown -R node:node /app
 USER node
 EXPOSE 4317

@@ -111,7 +111,6 @@ export async function rotateExtensionSession(refreshToken: string, requestedWork
           gt(extensionSessions.refreshExpiresAt, new Date())
         )
       )
-      .for('update')
       .limit(1);
     if (!current || current.status !== 'active') return null;
     const workspaceId = requestedWorkspaceId ?? current.workspaceId;

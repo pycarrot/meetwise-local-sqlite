@@ -12,11 +12,8 @@ const envSchema = z.object({
   HOST: z.string().trim().min(1).default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1024).max(65535).default(4317),
   PUBLIC_BASE_URL: z.string().url().default('http://127.0.0.1:4317'),
-  DATABASE_URL: z.string().min(1).default('postgresql://meetwise:meetwise@127.0.0.1:5432/meetwise'),
-  DATABASE_SSL: booleanString('false'),
-  DATABASE_SSL_REJECT_UNAUTHORIZED: booleanString('true'),
-  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
-  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
+  DATABASE_URL: z.string().min(1).default('file:./data/meetwise.db'),
+  DATABASE_BUSY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
   SESSION_SECRET: z.string().min(32).default('development-only-session-secret-change-me'),
   TOKEN_SIGNING_SECRET: z
     .string()
@@ -31,7 +28,7 @@ const envSchema = z.object({
   OLLAMA_MODEL: z.string().trim().min(1).max(120).default('llama3.2'),
   OLLAMA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
   OLLAMA_HEALTH_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(2_500),
-  OLLAMA_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(2),
+  OLLAMA_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   OLLAMA_MAX_TRANSCRIPT_CHARS: z.coerce.number().int().min(1_000).max(2_000_000).default(300_000),
   ANALYSIS_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   ANALYSIS_JOB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(300_000),
@@ -50,6 +47,18 @@ if (!parsed.success) {
 }
 
 const env = parsed.data;
+
+function normalizeDatabaseUrl(input: string): string {
+  if (!input.startsWith('file:')) throw new Error('DATABASE_URL must use a local file: URL');
+  const value = input.slice(5);
+  if (!value || value === ':memory:') {
+    if (env.NODE_ENV !== 'test') throw new Error('DATABASE_URL must point to a persistent file');
+    return input;
+  }
+  if (value.includes('?') || value.includes('#'))
+    throw new Error('DATABASE_URL must not contain a query or fragment');
+  return input;
+}
 
 function normalizeServiceUrl(input: string, label: string): string {
   const url = new URL(input);
@@ -72,6 +81,7 @@ function parseTrustProxy(value: string): false | number | string {
 
 const publicBaseUrl = normalizeServiceUrl(env.PUBLIC_BASE_URL, 'PUBLIC_BASE_URL');
 const ollamaUrl = normalizeServiceUrl(env.OLLAMA_URL, 'OLLAMA_URL');
+const databaseUrl = normalizeDatabaseUrl(env.DATABASE_URL);
 const corsAllowedOrigins = env.CORS_ALLOWED_ORIGINS.split(',')
   .map((v) => v.trim())
   .filter(Boolean);
@@ -110,11 +120,8 @@ export const config = Object.freeze({
   host: env.HOST,
   port: env.PORT,
   publicBaseUrl,
-  databaseUrl: env.DATABASE_URL,
-  databaseSsl: env.DATABASE_SSL,
-  databaseSslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED,
-  databasePoolMax: env.DATABASE_POOL_MAX,
-  databaseStatementTimeoutMs: env.DATABASE_STATEMENT_TIMEOUT_MS,
+  databaseUrl,
+  databaseBusyTimeoutMs: env.DATABASE_BUSY_TIMEOUT_MS,
   sessionSecret: env.SESSION_SECRET,
   tokenSigningSecret: env.TOKEN_SIGNING_SECRET,
   sessionTtlHours: env.SESSION_TTL_HOURS,

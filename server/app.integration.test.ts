@@ -1,11 +1,12 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { rm } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request, { type Agent } from 'supertest';
 
 let app: import('express').Express;
 let db: typeof import('./db/client.js').db;
-let pool: typeof import('./db/client.js').pool;
+let closeDatabase: typeof import('./db/client.js').closeDatabase;
 let schema: typeof import('./db/schema.js');
 let processNextJob: typeof import('./services/analysis-jobs.js').processNextJob;
 let hashPassword: typeof import('./auth/crypto.js').hashPassword;
@@ -15,6 +16,7 @@ let workspaceB: string;
 let userA: string;
 let userB: string;
 let password = 'CorrectHorse7Battery';
+const databasePath = `/tmp/meetwise-integration-${process.pid}.db`;
 
 function csrfFrom(response: request.Response): string {
   const values = response.headers['set-cookie'] as unknown as string[];
@@ -29,7 +31,11 @@ async function login(agent: Agent, email: string) {
 }
 
 beforeAll(async () => {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for integration tests');
+  await Promise.all([
+    rm(databasePath, { force: true }),
+    rm(`${databasePath}-shm`, { force: true }),
+    rm(`${databasePath}-wal`, { force: true })
+  ]);
   mockOllama = createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json');
     if (req.url === '/api/tags')
@@ -62,11 +68,12 @@ beforeAll(async () => {
   const port = (mockOllama.address() as AddressInfo).port;
   process.env.NODE_ENV = 'test';
   process.env.DEPLOYMENT_MODE = 'local';
+  process.env.DATABASE_URL = `file:${databasePath}`;
   process.env.OLLAMA_URL = `http://127.0.0.1:${port}`;
   process.env.OLLAMA_MODEL = 'test-model';
   process.env.OLLAMA_TIMEOUT_MS = '1000';
   process.env.ANALYSIS_MAX_ATTEMPTS = '1';
-  ({ db, pool } = await import('./db/client.js'));
+  ({ db, closeDatabase } = await import('./db/client.js'));
   schema = await import('./db/schema.js');
   const { migrate } = await import('./db/migrate.js');
   await migrate();
@@ -74,8 +81,6 @@ beforeAll(async () => {
   ({ processNextJob } = await import('./services/analysis-jobs.js'));
   const appModule = await import('./app.js');
   app = appModule.createApp();
-  await pool.query(`truncate audit_logs, analysis_jobs, ingestion_keys, extension_sessions, web_sessions,
-    action_items, decisions, analyses, transcript_segments, meetings, workspace_members, workspaces, users restart identity cascade`);
   const passwordHash = await hashPassword(password);
   const created = await db
     .insert(schema.users)
@@ -102,8 +107,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pool?.end();
+  await closeDatabase?.();
   await new Promise<void>((resolve) => mockOllama?.close(() => resolve()));
+  await Promise.all([
+    rm(databasePath, { force: true }),
+    rm(`${databasePath}-shm`, { force: true }),
+    rm(`${databasePath}-wal`, { force: true })
+  ]);
 });
 
 describe('production API integration', () => {
@@ -175,7 +185,21 @@ describe('production API integration', () => {
       .expect(404);
   });
 
-  it('runs analysis through the PostgreSQL job state machine', async () => {
+  it('searches transcript content through tenant-scoped SQLite FTS5', async () => {
+    const agentA = request.agent(app);
+    await login(agentA, 'a@example.com');
+    const result = await agentA
+      .get('/api/v1/meetings')
+      .query({ workspaceId: workspaceA, search: 'hell' })
+      .expect(200);
+    expect(result.body.items.map((item: { id: string }) => item.id)).toContain(meetingId);
+    await agentA
+      .get('/api/v1/meetings')
+      .query({ workspaceId: workspaceA, search: '" malformed' })
+      .expect(200);
+  });
+
+  it('runs analysis through the SQLite job state machine', async () => {
     const agentA = request.agent(app);
     const authA = await login(agentA, 'a@example.com');
     await agentA

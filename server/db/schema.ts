@@ -1,67 +1,52 @@
 import { sql } from 'drizzle-orm';
-import {
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgEnum,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid
-} from 'drizzle-orm/pg-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { AnalysisOutput } from '../../packages/shared/schemas.js';
 
-export const accountStatus = pgEnum('account_status', ['active', 'disabled']);
-export const workspaceRole = pgEnum('workspace_role', ['owner', 'admin', 'member', 'viewer']);
-export const analysisStatus = pgEnum('analysis_status', [
-  'pending',
-  'running',
-  'completed',
-  'failed'
-]);
-export const jobStatus = pgEnum('job_status', ['pending', 'running', 'completed', 'failed']);
+const uuidDefault = sql`(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1,1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))`;
+const nowMs = sql`(unixepoch('subsec') * 1000)`;
+const id = () => text('id').primaryKey().notNull().default(uuidDefault);
+const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs);
+const updatedAt = () => integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(nowMs);
 
-const timestamps = {
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-};
-
-export const users = pgTable(
+export const users = sqliteTable(
   'users',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: id(),
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     displayName: text('display_name').notNull(),
-    status: accountStatus('status').notNull().default('active'),
-    ...timestamps
+    status: text('status', { enum: ['active', 'disabled'] })
+      .notNull()
+      .default('active'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
   },
   (table) => [uniqueIndex('users_email_lower_uq').on(sql`lower(${table.email})`)]
 );
 
-export const workspaces = pgTable('workspaces', {
-  id: uuid('id').primaryKey().defaultRandom(),
+export const workspaces = sqliteTable('workspaces', {
+  id: id(),
   name: text('name').notNull(),
-  createdBy: uuid('created_by')
+  createdBy: text('created_by')
     .notNull()
     .references(() => users.id, { onDelete: 'restrict' }),
-  ...timestamps
+  createdAt: createdAt(),
+  updatedAt: updatedAt()
 });
 
-export const workspaceMembers = pgTable(
+export const workspaceMembers = sqliteTable(
   'workspace_members',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
+    id: id(),
+    workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    role: workspaceRole('role').notNull(),
-    ...timestamps
+    role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
   },
   (table) => [
     uniqueIndex('workspace_members_workspace_user_uq').on(table.workspaceId, table.userId),
@@ -70,22 +55,23 @@ export const workspaceMembers = pgTable(
   ]
 );
 
-export const meetings = pgTable(
+export const meetings = sqliteTable(
   'meetings',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
+    id: id(),
+    workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    createdBy: uuid('created_by')
+    createdBy: text('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     title: text('title').notNull(),
     source: text('source').notNull(),
-    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
-    endedAt: timestamp('ended_at', { withTimezone: true }).notNull(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-    ...timestamps
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }).notNull(),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
   },
   (table) => [
     index('meetings_workspace_started_idx').on(table.workspaceId, table.startedAt),
@@ -94,11 +80,11 @@ export const meetings = pgTable(
   ]
 );
 
-export const transcriptSegments = pgTable(
+export const transcriptSegments = sqliteTable(
   'transcript_segments',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    meetingId: uuid('meeting_id')
+    id: id(),
+    meetingId: text('meeting_id')
       .notNull()
       .references(() => meetings.id, { onDelete: 'cascade' }),
     clientId: text('client_id'),
@@ -107,31 +93,33 @@ export const transcriptSegments = pgTable(
     text: text('text').notNull(),
     startMs: integer('start_ms').notNull(),
     endMs: integer('end_ms').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    createdAt: createdAt()
   },
   (table) => [
     uniqueIndex('transcript_segments_meeting_position_uq').on(table.meetingId, table.position),
     index('transcript_segments_meeting_idx').on(table.meetingId),
-    index('transcript_segments_speaker_idx').on(table.speaker),
-    index('transcript_segments_search_idx').using('gin', sql`to_tsvector('simple', ${table.text})`)
+    index('transcript_segments_speaker_idx').on(table.speaker)
   ]
 );
 
-export const analyses = pgTable(
+export const analyses = sqliteTable(
   'analyses',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    meetingId: uuid('meeting_id')
+    id: id(),
+    meetingId: text('meeting_id')
       .notNull()
       .references(() => meetings.id, { onDelete: 'cascade' }),
-    status: analysisStatus('status').notNull().default('pending'),
+    status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] })
+      .notNull()
+      .default('pending'),
     model: text('model'),
-    result: jsonb('result').$type<AnalysisOutput>(),
+    result: text('result', { mode: 'json' }).$type<AnalysisOutput>(),
     failureReason: text('failure_reason'),
     attemptCount: integer('attempt_count').notNull().default(0),
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    completedAt: timestamp('completed_at', { withTimezone: true }),
-    ...timestamps
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
   },
   (table) => [
     uniqueIndex('analyses_meeting_uq').on(table.meetingId),
@@ -139,50 +127,50 @@ export const analyses = pgTable(
   ]
 );
 
-export const decisions = pgTable(
+export const decisions = sqliteTable(
   'decisions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    analysisId: uuid('analysis_id')
+    id: id(),
+    analysisId: text('analysis_id')
       .notNull()
       .references(() => analyses.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
     text: text('text').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    createdAt: createdAt()
   },
   (table) => [index('decisions_analysis_idx').on(table.analysisId)]
 );
 
-export const actionItems = pgTable(
+export const actionItems = sqliteTable(
   'action_items',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    analysisId: uuid('analysis_id')
+    id: id(),
+    analysisId: text('analysis_id')
       .notNull()
       .references(() => analyses.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
     owner: text('owner').notNull(),
     task: text('task').notNull(),
     due: text('due').notNull(),
-    completed: boolean('completed').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+    createdAt: createdAt()
   },
   (table) => [index('action_items_analysis_idx').on(table.analysisId)]
 );
 
-export const webSessions = pgTable(
+export const webSessions = sqliteTable(
   'web_sessions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
+    id: id(),
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull(),
     csrfHash: text('csrf_hash').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt()
   },
   (table) => [
     uniqueIndex('web_sessions_token_hash_uq').on(table.tokenHash),
@@ -191,22 +179,22 @@ export const webSessions = pgTable(
   ]
 );
 
-export const extensionSessions = pgTable(
+export const extensionSessions = sqliteTable(
   'extension_sessions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
+    id: id(),
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id')
+    workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     refreshTokenHash: text('refresh_token_hash').notNull(),
-    refreshExpiresAt: timestamp('refresh_expires_at', { withTimezone: true }).notNull(),
+    refreshExpiresAt: integer('refresh_expires_at', { mode: 'timestamp_ms' }).notNull(),
     accessVersion: integer('access_version').notNull().default(1),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt()
   },
   (table) => [
     uniqueIndex('extension_sessions_refresh_hash_uq').on(table.refreshTokenHash),
@@ -215,20 +203,20 @@ export const extensionSessions = pgTable(
   ]
 );
 
-export const ingestionKeys = pgTable(
+export const ingestionKeys = sqliteTable(
   'ingestion_keys',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    extensionSessionId: uuid('extension_session_id')
+    id: id(),
+    extensionSessionId: text('extension_session_id')
       .notNull()
       .references(() => extensionSessions.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id')
+    workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     requestHash: text('request_hash').notNull(),
-    meetingId: uuid('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    meetingId: text('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+    createdAt: createdAt()
   },
   (table) => [
     uniqueIndex('ingestion_keys_session_key_uq').on(table.extensionSessionId, table.key),
@@ -236,24 +224,26 @@ export const ingestionKeys = pgTable(
   ]
 );
 
-export const analysisJobs = pgTable(
+export const analysisJobs = sqliteTable(
   'analysis_jobs',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    analysisId: uuid('analysis_id')
+    id: id(),
+    analysisId: text('analysis_id')
       .notNull()
       .references(() => analyses.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id')
+    workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    status: jobStatus('status').notNull().default('pending'),
-    runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
-    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] })
+      .notNull()
+      .default('pending'),
+    runAfter: integer('run_after', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    lockedAt: integer('locked_at', { mode: 'timestamp_ms' }),
     lockedBy: text('locked_by'),
     attemptCount: integer('attempt_count').notNull().default(0),
     lastError: text('last_error'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
   },
   (table) => [
     index('analysis_jobs_claim_idx').on(table.status, table.runAfter),
@@ -264,22 +254,22 @@ export const analysisJobs = pgTable(
   ]
 );
 
-export const auditLogs = pgTable(
+export const auditLogs = sqliteTable(
   'audit_logs',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
-    workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
+    id: id(),
+    actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
     action: text('action').notNull(),
     targetType: text('target_type'),
-    targetId: uuid('target_id'),
-    success: boolean('success').notNull(),
+    targetId: text('target_id'),
+    success: integer('success', { mode: 'boolean' }).notNull(),
     ipHash: text('ip_hash'),
-    metadata: jsonb('metadata')
+    metadata: text('metadata', { mode: 'json' })
       .$type<Record<string, string | number | boolean | null>>()
       .notNull()
       .default({}),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+    createdAt: createdAt()
   },
   (table) => [
     index('audit_logs_workspace_created_idx').on(table.workspaceId, table.createdAt),

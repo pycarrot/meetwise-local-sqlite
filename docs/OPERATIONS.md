@@ -2,9 +2,9 @@
 
 ## Health and logs
 
-- `GET /api/v1/health` is process liveness and does not query dependencies.
-- `GET /api/v1/ready` checks PostgreSQL, Ollama connectivity, and configured model availability. A failure returns 503 with per-dependency state.
-- API logs are JSON and include request ID, method, route URL, status, and duration. Audit events are in PostgreSQL. Cookies, authorization headers, credentials, database URLs, prompts, and transcript content must never appear in normal logs.
+- `GET /api/v1/health` is process liveness.
+- `GET /api/v1/ready` checks SQLite and the configured Ollama model.
+- JSON request logs include request ID, method, route, status, and duration. Audit events are in SQLite. Credentials, cookies, authorization headers, database URLs, prompts, and transcript content must not appear in normal logs.
 
 ```bash
 docker compose ps
@@ -13,26 +13,22 @@ curl -fsS https://meetwise.example.com/api/v1/health
 curl -fsS https://meetwise.example.com/api/v1/ready
 ```
 
-Use request IDs to correlate reverse-proxy and API events. Restrict log access because opaque user/workspace IDs and operational metadata are still sensitive.
+## SQLite capacity and incidents
 
-## Worker and Ollama incidents
+Keep the named volume on local SSD storage with free space monitoring. Do not use NFS, SMB, distributed filesystems, or mount the same database on multiple hosts. SQLite serializes writers; occasional waits are normal and bounded by `DATABASE_BUSY_TIMEOUT_MS`. Repeated `SQLITE_BUSY` errors mean storage is slow or write load exceeds this edition's intended scale. Reduce analysis concurrency, inspect disk latency, and migrate to the PostgreSQL edition if sustained contention remains.
 
-Analysis is durable. When Ollama is unavailable, jobs retry with bounded exponential delay and eventually become `failed` with a sanitized reason. Users with analysis permission can retry from the dashboard. Restore Ollama, confirm the model appears in `/api/tags`, and retry failed meetings; do not manually mark jobs completed.
+WAL and shared-memory files next to the database are active runtime state. Never copy only the main `.db` file while processes are running. Use `npm run backup`, which performs `VACUUM INTO` and produces a consistent standalone file.
 
-Multiple worker replicas safely claim different jobs with row locks. `OLLAMA_MAX_CONCURRENCY` controls concurrent claims per worker; size the total across replicas to server capacity.
+## Worker and shutdown
 
-## Graceful shutdown
+Failed Ollama calls retry with bounded exponential delay and eventually become `failed`; authorized users can retry. A write transaction serializes each claim, stale locks recover automatically, and the Ollama request occurs after commit. Run one worker service per host. `OLLAMA_MAX_CONCURRENCY=1` is the recommended default for small deployments.
 
-API handles SIGTERM by stopping new accepts, draining in-flight requests up to 25 seconds, then closing the PostgreSQL pool. Worker stops claiming new jobs and closes its pool. Container orchestrator termination grace should exceed 30 seconds.
+API handles SIGTERM by draining requests for up to 25 seconds, then closes the SQLite client. Worker stops claiming work and closes its client. Stop both cleanly before restore or direct database maintenance.
 
-## Account and session response
+## Accounts, retention, and maintenance
 
-Disable a compromised account in PostgreSQL only as an emergency measure, then revoke `web_sessions` and `extension_sessions`; application administration for account status is intentionally not exposed in this release. Users can revoke all of their sessions from account settings. A stolen extension refresh credential becomes invalid after successful rotation or explicit logout/revocation.
+Users can revoke all sessions from account settings. Emergency account disable/revocation may be performed with reviewed SQLite statements while services are stopped; application account-status administration is not exposed in this release.
 
-## Retention and deletion
+Meeting deletion is a soft delete. Automated retention is not claimed. Operators must define and test a purge procedure and account separately for backup retention. Run `PRAGMA integrity_check` during restore drills, keep encrypted verified backups, monitor disk use, and periodically test login plus transcript/analysis recovery.
 
-Meeting deletion is soft deletion and immediately hides the meeting from normal tenant queries. Automated retention is not claimed or scheduled in this release. Operators must define a legal retention procedure, purge records with reviewed SQL if required, and account for backup retention separately. Test purge queries against a restored copy first.
-
-## Dependency and supply-chain maintenance
-
-CI runs lockfile installation, lint, strict typecheck, unit/integration tests, all builds, migration execution, dependency audit, secret scan, CodeQL, and container configuration/build. Review Dependabot changes, provenance, post-install scripts, and lockfile diffs. Never merge a dependency bump solely because CI is green.
+CI runs lockfile installation, formatting, lint, strict typecheck, unit and SQLite integration tests, builds, migration execution, dependency audit, secret scan, CodeQL, and container validation.

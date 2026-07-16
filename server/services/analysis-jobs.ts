@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { db, pool } from '../db/client.js';
+import { client, db } from '../db/client.js';
 import {
   actionItems,
   analyses,
@@ -24,7 +24,6 @@ export async function enqueueAnalysis(workspaceId: string, meetingId: string) {
           isNull(meetings.deletedAt)
         )
       )
-      .for('update')
       .limit(1);
     if (!meeting) throw new ApiError(404, 'NOT_FOUND', 'Meeting not found');
     const countRows = await tx
@@ -70,46 +69,64 @@ type ClaimedJob = {
 };
 
 export async function processNextJob(workerId: string): Promise<boolean> {
-  const client = await pool.connect();
   let job: ClaimedJob | undefined;
+  const transaction = await client.transaction('write');
   try {
-    await client.query('begin');
-    await client.query(
-      `with stale as (
-        update analysis_jobs set status='pending', locked_at=null, locked_by=null,
-          last_error='Worker interrupted; job recovered', run_after=now(), updated_at=now()
-        where status='running' and locked_at < now() - ($1::int * interval '1 millisecond')
-        returning analysis_id
-      ) update analyses set status='pending', failure_reason='Worker interrupted; job recovered', updated_at=now()
-        where id in (select analysis_id from stale)`,
-      [config.analysisJobLockTimeoutMs]
-    );
-    const claimed =
-      await client.query<ClaimedJob>(`select j.id job_id, j.analysis_id, a.meeting_id, j.attempt_count
+    const now = Date.now();
+    const staleBefore = now - config.analysisJobLockTimeoutMs;
+    const stale = await transaction.execute({
+      sql: `select analysis_id from analysis_jobs where status='running' and locked_at < ?`,
+      args: [staleBefore]
+    });
+    if (stale.rows.length) {
+      const ids = stale.rows.map((row) => String(row.analysis_id));
+      const placeholders = ids.map(() => '?').join(',');
+      await transaction.execute({
+        sql: `update analysis_jobs set status='pending', locked_at=null, locked_by=null,
+          last_error='Worker interrupted; job recovered', run_after=?, updated_at=?
+          where analysis_id in (${placeholders})`,
+        args: [now, now, ...ids]
+      });
+      await transaction.execute({
+        sql: `update analyses set status='pending', failure_reason='Worker interrupted; job recovered', updated_at=?
+          where id in (${placeholders})`,
+        args: [now, ...ids]
+      });
+    }
+    const claimed = await transaction.execute({
+      sql: `select j.id job_id, j.analysis_id, a.meeting_id, j.attempt_count
       from analysis_jobs j join analyses a on a.id=j.analysis_id
-      where j.status='pending' and j.run_after <= now()
-      order by j.created_at for update skip locked limit 1`);
-    job = claimed.rows[0];
+      where j.status='pending' and j.run_after <= ?
+      order by j.created_at limit 1`,
+      args: [now]
+    });
+    const row = claimed.rows[0];
+    job = row
+      ? {
+          job_id: String(row.job_id),
+          analysis_id: String(row.analysis_id),
+          meeting_id: String(row.meeting_id),
+          attempt_count: Number(row.attempt_count)
+        }
+      : undefined;
     if (!job) {
-      await client.query('commit');
+      await transaction.commit();
       return false;
     }
-    await client.query(
-      `update analysis_jobs set status='running', locked_at=now(), locked_by=$2,
-      attempt_count=attempt_count+1, updated_at=now() where id=$1`,
-      [job.job_id, workerId]
-    );
-    await client.query(
-      `update analyses set status='running', started_at=now(), attempt_count=attempt_count+1,
-      failure_reason=null, updated_at=now() where id=$1`,
-      [job.analysis_id]
-    );
-    await client.query('commit');
+    await transaction.execute({
+      sql: `update analysis_jobs set status='running', locked_at=?, locked_by=?,
+        attempt_count=attempt_count+1, updated_at=? where id=?`,
+      args: [now, workerId, now, job.job_id]
+    });
+    await transaction.execute({
+      sql: `update analyses set status='running', started_at=?, attempt_count=attempt_count+1,
+        failure_reason=null, updated_at=? where id=?`,
+      args: [now, now, job.analysis_id]
+    });
+    await transaction.commit();
   } catch (error) {
-    await client.query('rollback');
+    await transaction.rollback();
     throw error;
-  } finally {
-    client.release();
   }
 
   try {

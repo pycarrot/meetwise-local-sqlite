@@ -11,14 +11,14 @@ Thank you for helping improve secure, self-hosted meeting tooling.
 ## Development setup
 
 ```bash
-git clone https://github.com/pycarrot/meetwise-local.git
-cd meetwise-local
+git clone https://github.com/pycarrot/meetwise-local-sqlite.git
+cd meetwise-local-sqlite
 npm install
 npm run setup
 npm run dev
 ```
 
-PostgreSQL must be running before setup applies migrations. Use `npm run setup -- --skip-model` when you do not need local Ollama.
+SQLite is embedded and needs no database service. Use `npm run setup -- --skip-model` when you do not need local Ollama.
 
 ## Quality checks
 
@@ -26,7 +26,7 @@ Run before opening a pull request:
 
 ```bash
 npm run check
-DATABASE_URL=postgresql://... npm run test:integration
+npm run test:integration
 ```
 
 For visible dashboard changes, also run the local server followed by:

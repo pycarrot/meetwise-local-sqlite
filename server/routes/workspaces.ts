@@ -204,7 +204,7 @@ async function assertOwnerSafety(
     .limit(1);
   if (target?.role !== 'owner' || nextRole === 'owner') return;
   const [count] = await db
-    .select({ value: sql<number>`count(*)::int` })
+    .select({ value: sql<number>`count(*)` })
     .from(workspaceMembers)
     .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, 'owner')));
   if ((count?.value ?? 0) <= 1)

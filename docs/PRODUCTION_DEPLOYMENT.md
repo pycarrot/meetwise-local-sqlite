@@ -1,29 +1,23 @@
 # Production deployment
 
-## 1. Host, DNS, and firewall
+## Host, DNS, and storage
 
-Provision a Linux host with Docker Compose, persistent encrypted storage, sufficient RAM for the selected Ollama model, and time synchronization. Point an A/AAAA record such as `meetwise.example.com` at the host. Allow TCP 80/443 and UDP 443 to Caddy. Do not expose PostgreSQL, Ollama, the API container port, or Docker socket publicly.
+Provision one Linux host with Docker Compose, reliable local SSD storage, enough RAM for Ollama, time synchronization, and an encrypted disk. Point DNS at the host and allow TCP 80/443 plus UDP 443 to Caddy. Do not expose Ollama, the app container port, or Docker socket. The SQLite volume must not use NFS/SMB and must not be mounted by another host.
 
-## 2. Configuration and secrets
+## Configuration and startup
 
-Copy `.env.example` to a root-owned `.env` with mode `0600`. Set `PUBLIC_HOST` and matching `PUBLIC_BASE_URL`, a URL-safe random database password (`openssl rand -hex 32`), independent random `SESSION_SECRET` and `TOKEN_SIGNING_SECRET` values of at least 48 characters, and the exact `chrome-extension://<id>` CORS origin. Values containing `development-only`, `change-me`, wildcard CORS, HTTP public URLs, or `TRUST_PROXY=true` fail startup.
-
-For an external PostgreSQL service, replace `DATABASE_URL`, enable `DATABASE_SSL=true`, and normally retain `DATABASE_SSL_REJECT_UNAUTHORIZED=true` with a trusted CA. Do not disable verification merely to bypass a certificate error.
-
-## 3. Database and model
+Copy `.env.example` to a root-owned `.env` mode `0600`. Set `PUBLIC_HOST`, independent `SESSION_SECRET` and `TOKEN_SIGNING_SECRET` values of at least 48 random characters, and the exact `chrome-extension://<id>` CORS origin. Unsafe defaults, HTTP server origins, wildcard CORS, `TRUST_PROXY=true`, non-file database URLs, and in-memory production databases fail startup.
 
 ```bash
-docker compose up -d postgres ollama
+docker compose up -d ollama
 docker compose exec ollama ollama pull "$OLLAMA_MODEL"
 docker compose run --rm app node dist-server/server/cli.js db:migrate
 docker compose up -d --build
 ```
 
-The normal app entrypoint takes a PostgreSQL advisory lock and applies pending migrations before listening. For stricter change control, set `RUN_MIGRATIONS=false`, run the one-off migration command during a maintenance window, and start the app afterward. It never seeds or creates an administrator automatically.
+The app entrypoint applies pending migrations before listening. Migrations are serialized by SQLite's write transaction. For stricter change control set `RUN_MIGRATIONS=false`, run the one-off command during maintenance, then start. Startup never seeds data or creates credentials.
 
-## 4. Initial administrator
-
-Pass the password through an environment variable supplied by your secret manager, not a command-line argument:
+## Initial administrator
 
 ```bash
 docker compose exec \
@@ -32,31 +26,27 @@ docker compose exec \
   app node dist-server/server/cli.js admin:create --name 'Administrator' --workspace 'Company'
 ```
 
-`MEETWISE_ADMIN_PASSWORD` must already exist in the `docker compose exec` environment. Remove it immediately after creation. The command fails if the email already exists and never uses a default password.
+Supply the password from a secret manager/environment, never as a command argument, and remove it afterward. Use `user:create` for additional accounts, then add them to workspaces in the dashboard.
 
-Create additional accounts with `MEETWISE_USER_EMAIL`, `MEETWISE_USER_NAME`, and `MEETWISE_USER_PASSWORD` using `node dist-server/server/cli.js user:create`; then an owner/admin adds the email to a workspace in the dashboard. No password is generated or emailed by the service.
+## TLS and extension
 
-## 5. TLS and reverse proxy
-
-The included Caddy service obtains public certificates and forwards only to the internal app network. Confirm `curl -fsS https://meetwise.example.com/api/v1/health`. Keep `TRUST_PROXY=1` only when exactly one proxy hop exists. If a load balancer is inserted, set an exact hop count or trusted subnet and review client-IP rate limiting.
-
-## 6. Extension release
+Caddy obtains certificates and forwards only to the internal app network. Keep `TRUST_PROXY=1` when exactly one proxy hop exists. Confirm the health endpoint, then build the deployment-specific extension:
 
 ```bash
 EXTENSION_SERVER_URL=https://meetwise.example.com npm run package:extension
 ```
 
-The production build refuses HTTP and embeds only the exact deployment origin as a host permission. Publish through Chrome Web Store private/unlisted channels or enterprise policy. After Chrome assigns an extension ID, update `CORS_ALLOWED_ORIGINS` and restart the API. Details are in `EXTENSION_DISTRIBUTION.md`.
+The build refuses production HTTP and embeds only the exact deployment origin. After Chrome assigns an ID, update `CORS_ALLOWED_ORIGINS` and restart the app.
 
-## Upgrade and rollback
+## Upgrade, rollback, and scaling boundary
 
-1. Read release notes and take a verified backup.
-2. Pull/build the new image and run migrations.
-3. Start app and worker; inspect `/api/v1/ready` and structured logs.
-4. Build and distribute a matching extension if protocol or origin changed.
+1. Read release notes and take a verified `VACUUM INTO` backup.
+2. Stop app/worker for schema-changing maintenance when release notes require it.
+3. Build/pull the image and run migrations.
+4. Start services; inspect readiness and logs.
 
-Application rollback is `docker compose up` with the prior image. Database rollback is restore-from-backup unless a release explicitly ships a reversible down migration. Never run an older binary against a newer schema without compatibility confirmation.
+Application rollback uses the prior image. Schema rollback is restore-from-backup unless a release explicitly documents compatibility. Never run an older binary against a newer schema without confirmation.
 
-## Recovery and rotation
+This edition supports a single application host. Do not scale app/worker across machines or use a network filesystem. Move to the PostgreSQL edition before horizontal scaling or sustained high write concurrency.
 
-Rotate one secret at a time. Changing `TOKEN_SIGNING_SECRET` invalidates all access tokens; revoke extension sessions or rotate the secret during a communicated maintenance window. Changing `SESSION_SECRET` changes audit IP hashes and other keyed hashes but opaque web sessions remain database-backed. Rotate the database password by updating PostgreSQL and `.env` atomically. See `OPERATIONS.md` and `BACKUP_AND_RESTORE.md`.
+Changing `TOKEN_SIGNING_SECRET` invalidates access tokens. Changing `SESSION_SECRET` changes keyed audit hashes while opaque sessions remain database-backed. Secret rotation does not re-encrypt the SQLite file; use encrypted host and backup storage.
