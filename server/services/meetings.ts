@@ -73,17 +73,18 @@ export async function ingestMeeting(input: {
         })
         .returning();
       if (!meeting || !keyRow) throw new Error('Failed to persist meeting');
-      await tx.insert(transcriptSegments).values(
-        input.payload.segments.map((segment, position) => ({
-          meetingId: meeting.id,
-          clientId: segment.clientId,
-          position,
-          speaker: segment.speaker,
-          text: segment.text,
-          startMs: segment.startMs,
-          endMs: segment.endMs
-        }))
-      );
+      for (let offset = 0; offset < input.payload.segments.length; offset += 100)
+        await tx.insert(transcriptSegments).values(
+          input.payload.segments.slice(offset, offset + 100).map((segment, position) => ({
+            meetingId: meeting.id,
+            clientId: segment.clientId,
+            position: offset + position,
+            speaker: segment.speaker,
+            text: segment.text,
+            startMs: segment.startMs,
+            endMs: segment.endMs
+          }))
+        );
       await tx
         .update(ingestionKeys)
         .set({ meetingId: meeting.id })

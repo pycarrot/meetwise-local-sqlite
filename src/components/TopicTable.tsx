@@ -17,28 +17,46 @@ export function TopicTable({ topics, speakers, selectedTopic, onSelect }: TopicT
         <span>{topics.length} ประเด็น</span>
       </div>
       <div className="topic-table" role="list">
-        {topics.map((topic) => (
-          <button
-            className={`topic-row ${selectedTopic === topic.name ? 'selected' : ''}`}
-            key={topic.name}
-            onClick={() => onSelect(topic.name)}
-            type="button"
-          >
-            <div className="topic-main">
-              <strong>{topic.name}</strong>
-              <span>{topic.summary}</span>
+        {topics.map((topic, index) => {
+          const expanded = selectedTopic === topic.name;
+          const detailId = `topic-detail-${index}`;
+          return (
+            <div className="topic-item" key={topic.name}>
+              <button
+                className={`topic-row ${expanded ? 'selected' : ''}`}
+                onClick={() => onSelect(expanded ? '' : topic.name)}
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={detailId}
+              >
+                <div className="topic-main">
+                  <strong>{topic.name}</strong>
+                  <span>{topic.summary}</span>
+                </div>
+                <div className="topic-speakers">
+                  {topic.speakers.map((speaker) => (
+                    <span key={speaker.name}>
+                      <i style={{ background: colorForSpeaker(speaker.name, speakers) }} />
+                      {speaker.name}
+                    </span>
+                  ))}
+                </div>
+                <ChevronRight className={expanded ? 'expanded' : ''} size={18} />
+              </button>
+              {expanded && (
+                <div id={detailId} className="topic-detail">
+                  <p>{topic.summary}</p>
+                  {topic.speakers.map((speaker) => (
+                    <div key={speaker.name}>
+                      <strong>{speaker.name}</strong>
+                      <span>{speaker.contribution}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="topic-speakers">
-              {topic.speakers.map((speaker) => (
-                <span key={speaker.name}>
-                  <i style={{ background: colorForSpeaker(speaker.name, speakers) }} />
-                  {speaker.name}
-                </span>
-              ))}
-            </div>
-            <ChevronRight size={18} />
-          </button>
-        ))}
+          );
+        })}
         {!topics.length && <div className="empty-state compact">ยังไม่มีข้อมูลประเด็น</div>}
       </div>
     </section>

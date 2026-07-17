@@ -16,6 +16,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128)
 });
 
+export const registerSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+  displayName: z.string().trim().min(2).max(120),
+  workspaceName: z.string().trim().min(2).max(120)
+});
+
 export const extensionLoginSchema = loginSchema.extend({ workspaceId: uuidSchema.optional() });
 export const refreshExtensionSchema = z.object({
   refreshToken: z.string().min(32).max(512),

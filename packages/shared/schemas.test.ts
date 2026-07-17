@@ -1,10 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { meetingIngestionSchema, passwordSchema } from './schemas.js';
+import { meetingIngestionSchema, passwordSchema, registerSchema } from './schemas.js';
 
 describe('shared validation', () => {
   it('requires strong passwords', () => {
     expect(passwordSchema.safeParse('weak-password').success).toBe(false);
     expect(passwordSchema.safeParse('CorrectHorse7Battery').success).toBe(true);
+  });
+  it('validates and normalizes self-registration', () => {
+    expect(
+      registerSchema.parse({
+        displayName: ' New User ',
+        email: 'NEW@EXAMPLE.COM',
+        password: 'CorrectHorse7Battery',
+        workspaceName: ' Internal Team '
+      })
+    ).toEqual({
+      displayName: 'New User',
+      email: 'new@example.com',
+      password: 'CorrectHorse7Battery',
+      workspaceName: 'Internal Team'
+    });
+    expect(
+      registerSchema.safeParse({
+        displayName: 'N',
+        email: 'invalid',
+        password: 'weak',
+        workspaceName: 'I'
+      }).success
+    ).toBe(false);
   });
   it('bounds ingestion and transcript timestamps', () => {
     const base = {

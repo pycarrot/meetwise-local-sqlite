@@ -7,6 +7,7 @@ const QUEUE_KEY = 'meetwiseUploadQueueV1';
 const CAPTURE_KEY = 'meetwiseCaptureCheckpointV1';
 const MAX_QUEUE_ITEMS = 20;
 const MAX_QUEUE_BYTES = 20 * 1024 * 1024;
+const MAX_UPLOADED_HISTORY = 5;
 let refreshPromise;
 let processing = false;
 
@@ -49,7 +50,13 @@ async function publicRequest(path, init = {}) {
     headers: { 'content-type': 'application/json', ...(init.headers || {}) }
   });
   const data = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = data?.error?.code;
+    error.requestId = data?.error?.requestId;
+    throw error;
+  }
   return data;
 }
 
@@ -96,7 +103,13 @@ async function authenticatedRequest(path, init = {}, retry = true) {
     return authenticatedRequest(path, init, false);
   }
   const data = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = data?.error?.code;
+    error.requestId = data?.error?.requestId;
+    throw error;
+  }
   return data;
 }
 
@@ -104,14 +117,30 @@ async function readQueue() {
   return (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY] || [];
 }
 async function writeQueue(queue) {
-  await chrome.storage.local.set({ [QUEUE_KEY]: queue });
+  const retainedUploaded = new Set(
+    queue
+      .filter((item) => item.state === 'uploaded')
+      .sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0))
+      .slice(0, MAX_UPLOADED_HISTORY)
+  );
+  const retained = queue.filter((item) => item.state !== 'uploaded' || retainedUploaded.has(item));
+  await chrome.storage.local.set({ [QUEUE_KEY]: retained });
+  const nextRetryAt = retained
+    .filter((item) => item.state === 'failed' && item.nextAttemptAt > Date.now())
+    .reduce((earliest, item) => Math.min(earliest, item.nextAttemptAt), Infinity);
+  if (Number.isFinite(nextRetryAt))
+    chrome.alarms.create('meetwise-upload-retry', { when: nextRetryAt });
+  else await chrome.alarms.clear('meetwise-upload-retry');
 }
 
 async function enqueue(payload) {
   const queue = await readQueue();
-  const bytes = new TextEncoder().encode(JSON.stringify(queue.map((item) => item.payload))).length;
+  const pending = queue.filter((item) => item.state !== 'uploaded');
+  const bytes = new TextEncoder().encode(
+    JSON.stringify(pending.map((item) => item.payload))
+  ).length;
   const payloadBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
-  if (queue.length >= MAX_QUEUE_ITEMS || bytes + payloadBytes > MAX_QUEUE_BYTES) {
+  if (pending.length >= MAX_QUEUE_ITEMS || bytes + payloadBytes > MAX_QUEUE_BYTES) {
     throw new Error('คิวอัปโหลดเต็ม กรุณา retry หรือลบรายการเก่าก่อน');
   }
   const item = createQueueItem(payload);
@@ -126,30 +155,49 @@ async function processQueue() {
   processing = true;
   try {
     const queue = await readQueue();
-    const item = queue.find(
-      (entry) => entry.state !== 'uploaded' && entry.nextAttemptAt <= Date.now()
-    );
-    if (!item) return;
-    item.state = 'uploading';
-    await writeQueue(queue);
-    try {
-      const result = await authenticatedRequest('/api/v1/meetings/ingest', {
-        method: 'POST',
-        headers: { 'idempotency-key': item.idempotencyKey },
-        body: JSON.stringify(item.payload)
-      });
-      item.state = 'uploaded';
-      item.error = null;
-      item.meetingId = result.meeting.id;
-      item.uploadedAt = Date.now();
-    } catch (error) {
-      item.attempts += 1;
-      item.state = 'failed';
-      item.error = error.message.slice(0, 300);
-      item.nextAttemptAt = Date.now() + retryDelayMs(item.attempts);
-      chrome.alarms.create('meetwise-upload-retry', { when: item.nextAttemptAt });
+    let item;
+    while (
+      (item = queue.find(
+        (entry) => entry.state !== 'uploaded' && entry.nextAttemptAt <= Date.now()
+      ))
+    ) {
+      item.state = 'uploading';
+      await writeQueue(queue);
+      try {
+        const result = await authenticatedRequest('/api/v1/meetings/ingest', {
+          method: 'POST',
+          headers: { 'idempotency-key': item.idempotencyKey },
+          body: JSON.stringify(item.payload)
+        });
+        item.state = 'uploaded';
+        item.error = null;
+        item.errorCode = null;
+        item.requestId = null;
+        item.meetingId = result.meeting.id;
+        item.uploadedAt = Date.now();
+        console.info('[Meetwise] upload succeeded', {
+          queueItemId: item.id,
+          meetingId: item.meetingId,
+          replayed: result.replayed
+        });
+      } catch (error) {
+        item.attempts += 1;
+        item.state = 'failed';
+        item.error = error.message.slice(0, 300);
+        item.errorCode = error.code || null;
+        item.requestId = error.requestId || null;
+        item.nextAttemptAt = Date.now() + retryDelayMs(item.attempts);
+        console.error('[Meetwise] upload failed', {
+          queueItemId: item.id,
+          attempt: item.attempts,
+          status: error.status,
+          code: item.errorCode,
+          requestId: item.requestId,
+          message: item.error
+        });
+      }
+      await writeQueue(queue);
     }
-    await writeQueue(queue);
   } finally {
     processing = false;
   }
@@ -199,8 +247,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         item.nextAttemptAt = Date.now();
         item.state = 'queued';
         item.error = null;
+        item.errorCode = null;
+        item.requestId = null;
         await writeQueue(queue);
-        void processQueue();
+        await processQueue();
+      }
+      return { ok: true };
+    }
+    if (message.type === 'MEETWISE_QUEUE_REMOVE') {
+      const queue = await readQueue();
+      const index = queue.findIndex((entry) => entry.id === message.id);
+      if (index >= 0) {
+        if (queue[index].state === 'uploading') throw new Error('ไม่สามารถลบรายการที่กำลังส่งได้');
+        queue.splice(index, 1);
+        await writeQueue(queue);
       }
       return { ok: true };
     }

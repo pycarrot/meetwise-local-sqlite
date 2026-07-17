@@ -1,11 +1,17 @@
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { and, eq, sql } from 'drizzle-orm';
-import { loginSchema } from '../../packages/shared/schemas.js';
+import { loginSchema, registerSchema } from '../../packages/shared/schemas.js';
 import { config } from '../config.js';
 import { db } from '../db/client.js';
-import { extensionSessions, users, webSessions } from '../db/schema.js';
-import { stableSecretHash, verifyPassword } from '../auth/crypto.js';
+import {
+  extensionSessions,
+  users,
+  webSessions,
+  workspaceMembers,
+  workspaces
+} from '../db/schema.js';
+import { hashPassword, stableSecretHash, verifyPassword } from '../auth/crypto.js';
 import { requireCsrf, requireWebAuth } from '../auth/middleware.js';
 import {
   createWebSession,
@@ -34,6 +40,61 @@ const cookieBase = {
   sameSite: 'strict' as const,
   path: '/'
 };
+
+router.post('/register', loginLimiter, async (request, response) => {
+  const input = registerSchema.parse(request.body);
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${input.email}`)
+    .limit(1);
+  if (existing)
+    throw new ApiError(409, 'EMAIL_EXISTS', 'An account with this email already exists');
+
+  const passwordHash = await hashPassword(input.password);
+  const created = await db.transaction(async (tx) => {
+    const [user] = await tx
+      .insert(users)
+      .values({ email: input.email, displayName: input.displayName, passwordHash })
+      .returning();
+    if (!user) throw new Error('Failed to create user');
+    const [workspace] = await tx
+      .insert(workspaces)
+      .values({ name: input.workspaceName, createdBy: user.id })
+      .returning();
+    if (!workspace) throw new Error('Failed to create workspace');
+    await tx
+      .insert(workspaceMembers)
+      .values({ workspaceId: workspace.id, userId: user.id, role: 'owner' });
+    return { user, workspace };
+  });
+
+  const session = await createWebSession(created.user.id);
+  response.cookie(WEB_SESSION_COOKIE, session.token, { ...cookieBase, expires: session.expiresAt });
+  response.cookie(CSRF_COOKIE, session.csrfToken, {
+    ...cookieBase,
+    httpOnly: false,
+    expires: session.expiresAt
+  });
+  await writeAudit({
+    request,
+    actorUserId: created.user.id,
+    workspaceId: created.workspace.id,
+    action: 'auth.register',
+    targetType: 'workspace',
+    targetId: created.workspace.id,
+    success: true
+  });
+  response.status(201).json({
+    user: {
+      id: created.user.id,
+      email: created.user.email,
+      displayName: created.user.displayName,
+      status: created.user.status
+    },
+    workspaces: [{ id: created.workspace.id, name: created.workspace.name, role: 'owner' }]
+  });
+});
 
 router.post('/login', loginLimiter, async (request, response) => {
   const input = loginSchema.parse(request.body);

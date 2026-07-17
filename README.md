@@ -39,13 +39,11 @@ cp .env.example .env
 docker compose up -d ollama
 docker compose exec ollama ollama pull llama3.2
 docker compose up -d --build
-
-export MEETWISE_ADMIN_EMAIL=admin@example.com
-read -s MEETWISE_ADMIN_PASSWORD && export MEETWISE_ADMIN_PASSWORD
-docker compose exec -e MEETWISE_ADMIN_EMAIL -e MEETWISE_ADMIN_PASSWORD app \
-  node dist-server/server/cli.js admin:create --name 'Administrator' --workspace 'My workspace'
-unset MEETWISE_ADMIN_PASSWORD
 ```
+
+Open the web dashboard and choose **สมัครใช้งาน**. Each user sets their own password; registration creates their first workspace and makes them its owner. The same email and password work in the Chrome extension. Existing accounts without a workspace can create one from the dashboard. Self-registration is intentionally open for small internal deployments, so restrict access to the organization network or trusted users. Email verification and password-reset email are not included.
+
+The `admin:create` CLI remains available for recovery or for deployments that prefer operator-created accounts.
 
 Generate each application secret independently with a cryptographically secure tool such as `openssl rand -base64 48`. Caddy obtains TLS after DNS is correct. Server mode fails fast for weak/default secrets, non-HTTPS origins, wildcard CORS, or unsafe proxy settings.
 

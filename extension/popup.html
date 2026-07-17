@@ -8,51 +8,119 @@
   </head>
   <body>
     <main>
-      <header>
-        <span class="mark">M</span>
+      <header class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 44 44">
+            <path d="M4 25 10 13l7 22 8-29 7 21 8-11"></path>
+            <path d="m7 31 8 7 10-7 8 5 7-7"></path>
+          </svg>
+        </span>
         <div>
           <h1>Meetwise</h1>
           <p>Google Meet Capturer</p>
         </div>
       </header>
-      <div id="announcement" class="status" role="status" aria-live="polite">
-        <i></i><span>กำลังตรวจ server…</span>
+
+      <div class="connection-row">
+        <div id="announcement" class="status" role="status" aria-live="polite">
+          <i aria-hidden="true"></i><span>กำลังตรวจสอบ Server…</span>
+        </div>
+        <div id="identity" class="identity" hidden>
+          <span id="user-avatar" class="avatar" aria-hidden="true">A</span>
+          <div>
+            <p id="current-user" class="user-name"></p>
+            <p id="current-workspace" class="workspace-name"></p>
+          </div>
+        </div>
       </div>
-      <form id="settings-form">
-        <label for="server-url">Server URL</label>
-        <input id="server-url" name="serverUrl" type="url" required autocomplete="url" />
-        <button id="save-server" type="submit">บันทึก Server URL</button>
-      </form>
-      <form id="login-form">
-        <label for="email">อีเมล</label
-        ><input id="email" name="email" type="email" required autocomplete="username" />
-        <label for="password">รหัสผ่าน</label
-        ><input
+
+      <form id="login-form" class="login-form">
+        <div class="login-copy">
+          <h2>เข้าสู่ระบบ</h2>
+          <p>
+            ใช้บัญชีองค์กรเพื่อบันทึกการประชุม หากยังไม่มีบัญชีให้สมัครจากหน้าเว็บ Meetwise ก่อน
+          </p>
+        </div>
+        <label for="email">อีเมล</label>
+        <input id="email" name="email" type="email" required autocomplete="username" />
+        <label for="password">รหัสผ่าน</label>
+        <input
           id="password"
           name="password"
           type="password"
           required
           autocomplete="current-password"
         />
-        <button class="primary" type="submit">เข้าสู่ระบบ</button>
+        <button class="primary login-button" type="submit">เข้าสู่ระบบ</button>
       </form>
-      <section id="session-panel" hidden>
-        <p id="current-user"></p>
-        <p id="current-workspace"></p>
-        <button id="logout" type="button">ออกจากระบบ</button>
-        <div id="capture-status" class="capture-status">พร้อมเริ่มจับคำบรรยาย</div>
-        <div class="actions">
-          <button id="start" class="primary" type="button">เริ่มจับ</button
-          ><button id="stop" type="button">หยุดและเข้าคิว</button>
+
+      <section id="session-panel" class="session-panel" hidden>
+        <section id="capture-card" class="capture-card">
+          <span class="mic" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="8" y="3" width="8" height="12" rx="4"></rect>
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path>
+            </svg>
+          </span>
+          <h2 id="capture-title">พร้อมบันทึกคำบรรยาย</h2>
+          <p id="capture-status">เปิดคำบรรยายใน Google Meet แล้วเริ่มบันทึก</p>
+          <button id="capture-toggle" class="primary capture-button" type="button">
+            เริ่มบันทึก
+          </button>
+        </section>
+
+        <button id="dashboard" class="dashboard" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 20V10M12 20V4M19 20v-7"></path>
+          </svg>
+          เปิดแดชบอร์ด
+        </button>
+
+        <div class="queue-panel">
+          <div class="queue-heading">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 16V4M7 9l5-5 5 5M5 20h14"></path>
+            </svg>
+            <div>
+              <h2>คิวอัปโหลด</h2>
+              <p id="queue-summary">ไม่มีรายการค้างส่ง</p>
+            </div>
+          </div>
+          <ul id="queue" hidden></ul>
         </div>
-        <button id="dashboard" class="dashboard" type="button">เปิดแดชบอร์ด</button>
       </section>
-      <section>
-        <h2>คิวอัปโหลด</h2>
-        <ul id="queue"></ul>
-        <button id="clear-data" type="button">ลบ transcript ที่เก็บใน extension</button>
-      </section>
+
+      <details id="settings" class="settings">
+        <summary>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path
+              d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"
+            ></path>
+          </svg>
+          <span id="settings-label">ตั้งค่า Server</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="settings-body">
+          <form id="settings-form">
+            <label for="server-url">Server URL</label>
+            <input id="server-url" name="serverUrl" type="url" required autocomplete="url" />
+            <button id="save-server" type="submit">บันทึก Server URL</button>
+          </form>
+          <button id="clear-data" class="quiet-button" type="button" hidden>
+            ลบ transcript ใน Extension
+          </button>
+          <button id="logout" class="danger-button" type="button" hidden>ออกจากระบบ</button>
+        </div>
+      </details>
     </main>
+    <dialog id="confirm-dialog" aria-labelledby="confirm-message">
+      <p id="confirm-message"></p>
+      <div>
+        <button id="confirm-cancel" type="button">ยกเลิก</button>
+        <button id="confirm-submit" class="danger-button" type="button"></button>
+      </div>
+    </dialog>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

@@ -13,6 +13,7 @@ export function Transcript({
 }) {
   const [speaker, setSpeaker] = useState('ทั้งหมด');
   const [query, setQuery] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase('th'));
   const filtered = useMemo(
     () =>
@@ -29,6 +30,32 @@ export function Transcript({
     <section className="panel transcript-panel" aria-labelledby="transcript-title">
       <div className="transcript-toolbar">
         <h2 id="transcript-title">บทสนทนา</h2>
+        <button
+          type="button"
+          onClick={async () => {
+            const text = filtered
+              .map(
+                (segment) => `${formatTime(segment.startMs)} ${segment.speaker}: ${segment.text}`
+              )
+              .join('\n');
+            try {
+              if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+              else {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.append(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+              }
+              setCopyStatus('คัดลอกแล้ว');
+            } catch {
+              setCopyStatus('คัดลอกไม่สำเร็จ');
+            }
+          }}
+        >
+          คัดลอกบทสนทนา
+        </button>
         <div className="speaker-filters" aria-label="กรองตามผู้พูด">
           {['ทั้งหมด', ...speakers.map((item) => item.name)].map((name) => (
             <button
@@ -36,6 +63,7 @@ export function Transcript({
               key={name}
               onClick={() => setSpeaker(name)}
               type="button"
+              aria-pressed={speaker === name}
             >
               {name !== 'ทั้งหมด' && <i style={{ background: colorForSpeaker(name, speakers) }} />}
               {name}
@@ -52,6 +80,7 @@ export function Transcript({
           />
         </label>
       </div>
+      {copyStatus && <div role="status">{copyStatus}</div>}
       <div className="transcript-list">
         {filtered.map((segment) => {
           const color = colorForSpeaker(segment.speaker, speakers);

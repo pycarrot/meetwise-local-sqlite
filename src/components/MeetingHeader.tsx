@@ -26,15 +26,17 @@ export function MeetingHeader({
         <div className="title-row">
           <h1>{meeting.title}</h1>
           <span
-            className={`analysis-status ${meeting.analysis?.status === 'completed' ? 'done' : ''}`}
+            className={`analysis-status ${meeting.analysis?.status === 'completed' ? 'done' : meeting.analysis?.status === 'failed' ? 'failed' : ''}`}
           >
             {meeting.analysis?.status === 'completed'
               ? 'วิเคราะห์แล้ว'
               : meeting.analysis?.status === 'failed'
-                ? 'วิเคราะห์ล้มเหลว'
+                ? 'วิเคราะห์ไม่สำเร็จ'
                 : meeting.analysis?.status === 'running'
-                  ? 'กำลังวิเคราะห์'
-                  : 'รอการวิเคราะห์'}
+                  ? 'กำลังวิเคราะห์…'
+                  : meeting.analysis?.status === 'pending'
+                    ? 'รอคิววิเคราะห์'
+                    : 'ยังไม่ได้วิเคราะห์'}
           </span>
         </div>
         <div className="meeting-meta">
@@ -77,9 +79,15 @@ export function MeetingHeader({
             <RotateCw size={18} className={analyzing ? 'spinning' : ''} />
             {analyzing
               ? 'กำลังวิเคราะห์…'
-              : meeting.analysis?.status === 'failed'
-                ? 'ลองวิเคราะห์ใหม่'
-                : 'วิเคราะห์ใหม่'}
+              : meeting.analysis?.status === 'pending'
+                ? 'รอคิว…'
+                : meeting.analysis?.status === 'running'
+                  ? 'กำลังวิเคราะห์…'
+                  : meeting.analysis?.status === 'failed'
+                    ? 'ลองอีกครั้ง'
+                    : meeting.analysis?.status === 'completed'
+                      ? 'วิเคราะห์ใหม่'
+                      : 'วิเคราะห์'}
           </button>
         )}
       </div>
